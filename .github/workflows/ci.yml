@@ -4,11 +4,29 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  windows:
+    name: Testes no Windows
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - name: Ambiente
+        run: |
+          uv venv --python 3.13 .venv
+          uv pip install --python .venv/Scripts/python.exe -e ".[dev]"
+          .venv/Scripts/python.exe -c "import ssl; print(ssl.OPENSSL_VERSION)"
+      - name: Testes (unitários e integração)
+        run: .venv/Scripts/python.exe -m pytest
+
   qualidade:
     name: Lint, testes e segurança
     runs-on: ubuntu-24.04
