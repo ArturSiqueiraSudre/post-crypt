@@ -27,6 +27,13 @@ jobs:
       - name: Testes (unitários e integração)
         run: .venv/Scripts/python.exe -m pytest
 
+      - name: Script de teste local (Windows PowerShell 5.1)
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\testar-local.ps1 -SemLaboratorio
+          Get-Content resultado-testes\resumo.txt -Encoding UTF8
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
   qualidade:
     name: Lint, testes e segurança
     runs-on: ubuntu-24.04

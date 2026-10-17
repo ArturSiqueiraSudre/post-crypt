@@ -16,6 +16,7 @@ lab/certs/*
 !lab/certs/.gitkeep
 
 # Saídas de varredura (podem conter dados do ambiente do cliente)
+resultado-testes/
 resultado*.json
 *.cbom.json
 relatorio*.html

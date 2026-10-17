@@ -102,6 +102,14 @@ pip-audit --skip-editable
 
 O teste de integração do servidor híbrido precisa de um Python com OpenSSL 3.5+; sem ele, o teste é pulado e o restante roda normalmente.
 
+No Windows, uma bateria completa (ambiente, ruff, pytest, bandit, pip-audit e, com o Docker Desktop aberto, o laboratório) roda com:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\testar-local.ps1
+```
+
+Os logs de cada etapa e o `resumo.txt` ficam em `resultado-testes\`.
+
 ```text
 src/postcrypt/
   cli.py          comando postcrypt
