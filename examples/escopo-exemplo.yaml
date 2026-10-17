@@ -1,0 +1,22 @@
+# Arquivo de escopo do Post-Crypt.
+#
+# O Post-Crypt só contata o que está listado aqui. Não há descoberta de rede,
+# faixas de IP nem curingas: cada serviço entra com host e porta explícitos.
+# Antes de varrer serviços de terceiros, obtenha autorização do terceiro.
+
+authorization:
+  by: "Nome de quem autorizou (cargo)"   # obrigatório
+  date: 2026-10-17                        # obrigatório, AAAA-MM-DD
+  reference: "Termo de escopo nº 01/2026" # opcional
+
+targets:
+  - host: vpn.exemplo.com.br
+    port: 443
+    label: Portal VPN
+    owner: self            # self = próprio | third_party = fornecedor
+
+  - host: 10.0.10.25
+    port: 8443
+    label: API do core bancário
+    owner: third_party
+    sni: api.fornecedor.com.br   # nome enviado no TLS quando o host é um IP
