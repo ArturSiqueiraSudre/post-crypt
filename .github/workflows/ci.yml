@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  qualidade:
+    name: Lint, testes e segurança
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+
+      # O Python do uv (python-build-standalone) traz OpenSSL 3.5, então os
+      # testes de integração conseguem subir um servidor TLS híbrido de verdade.
+      - name: Ambiente
+        run: |
+          uv venv --python 3.13 .venv
+          uv pip install --python .venv/bin/python -e ".[dev]"
+          .venv/bin/python -c "import ssl; print(ssl.OPENSSL_VERSION)"
+
+      - name: Ruff
+        run: |
+          .venv/bin/ruff check src tests lab
+          .venv/bin/ruff format --check src tests lab
+
+      - name: Testes (unitários e integração)
+        run: .venv/bin/pytest
+
+      - name: Bandit
+        run: .venv/bin/bandit -q -r src -c pyproject.toml
+
+      - name: pip-audit
+        run: .venv/bin/pip-audit --skip-editable
+
+  laboratorio:
+    name: Gabarito do laboratório (nginx + OpenSSL 3.5)
+    runs-on: ubuntu-24.04
+    needs: qualidade
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Ambiente
+        run: |
+          uv venv --python 3.13 .venv
+          uv pip install --python .venv/bin/python -e .
+
+      - name: Certificados do laboratório
+        run: .venv/bin/python lab/gerar_certificados.py
+
+      - name: Sobe o laboratório
+        run: |
+          docker compose -f lab/docker-compose.yml up -d
+          for i in $(seq 1 30); do
+            (echo > /dev/tcp/127.0.0.1/8445) 2>/dev/null && break
+            sleep 1
+          done
+          docker compose -f lab/docker-compose.yml exec -T tls nginx -V 2>&1 | grep -i openssl || true
+
+      - name: Varredura
+        run: .venv/bin/postcrypt scan lab/escopo-lab.yaml --json resultado.json
+
+      - name: Confere o gabarito (CA2)
+        run: .venv/bin/python lab/verificar_gabarito.py resultado.json
+
+      - name: Logs do nginx
+        if: failure()
+        run: docker compose -f lab/docker-compose.yml logs
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: resultado-laboratorio
+          path: resultado.json
+          if-no-files-found: ignore
