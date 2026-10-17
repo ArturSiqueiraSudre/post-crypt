@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Laboratório: chaves e certificados são gerados localmente, nunca versionados
+lab/certs/*
+!lab/certs/.gitkeep
+
+# Saídas de varredura (podem conter dados do ambiente do cliente)
+resultado*.json
+*.cbom.json
+relatorio*.html
+relatorio*.pdf
+
+# Editores e sistema
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

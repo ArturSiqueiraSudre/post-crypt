@@ -1,0 +1,63 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "post-crypt"
+version = "0.1.0"
+description = "Varredura local de prontidão pós-quântica: inventário TLS/SSH, CBOM e evidência assinada para equipes de 1 a 3 pessoas."
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "Artur Siqueira Sudré" },
+    { name = "Luana Pavanelli" },
+    { name = "Murilo Rocha" },
+]
+keywords = ["post-quantum", "pqc", "ml-kem", "cbom", "tls", "crypto-agility"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Security :: Cryptography",
+    "Environment :: Console",
+]
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.7",
+    "pyyaml>=6.0",
+    "cryptography>=48",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "bandit>=1.7",
+    "pip-audit>=2.7",
+]
+
+[project.scripts]
+postcrypt = "postcrypt.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/postcrypt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: sobe servidores TLS locais (precisa de Python com OpenSSL 3.5 para o caso híbrido)",
+]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]  # acentos em strings e comentários são intencionais
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S603", "S311"]
+
+[tool.bandit]
+exclude_dirs = ["tests"]
