@@ -1,0 +1,13 @@
+# Escopo do laboratório (docker compose em lab/). Gabarito em lab/gabarito.yaml.
+authorization:
+  by: "Equipe Post-Crypt"
+  date: 2026-10-17
+  reference: "Laboratório local"
+
+targets:
+  - { host: 127.0.0.1, port: 8441, label: tls-hibrido, sni: tls-hibrido.lab }
+  - { host: 127.0.0.1, port: 8442, label: tls-classico, sni: tls-classico.lab }
+  - { host: 127.0.0.1, port: 8443, label: tls-legado, sni: tls-legado.lab }
+  - { host: 127.0.0.1, port: 8444, label: tls-vencendo, sni: tls-vencendo.lab }
+  - { host: 127.0.0.1, port: 8445, label: tls-vencido, sni: tls-vencido.lab }
+  - { host: 127.0.0.1, port: 8449, label: desligado }

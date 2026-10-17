@@ -1,0 +1,7 @@
+# Resultado esperado para cada serviço do laboratório (critério de aceite CA2).
+tls-hibrido:  { status: pqc }
+tls-classico: { status: hndl_vulnerable }
+tls-legado:   { status: hndl_vulnerable, findings: [RSA_KEY_TRANSPORT, NO_TLS13] }
+tls-vencendo: { status: pqc, findings: [CERT_EXPIRING] }
+tls-vencido:  { status: pqc, findings: [CERT_EXPIRED] }
+desligado:    { status: unreachable }

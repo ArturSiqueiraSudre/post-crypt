@@ -1,0 +1,17 @@
+# Laboratório com gabarito conhecido para testes de aceitação e demonstração.
+#
+#   python lab/gerar_certificados.py
+#   docker compose -f lab/docker-compose.yml up -d
+#   postcrypt scan lab/escopo-lab.yaml
+#   python lab/verificar_gabarito.py resultado.json
+#
+# A porta 8449 fica de propósito sem serviço (caso "desligado").
+
+services:
+  tls:
+    image: nginx:1.29-alpine   # Alpine 3.22+ traz OpenSSL 3.5, com ML-KEM
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    ports:
+      - "127.0.0.1:8441-8445:8441-8445"
