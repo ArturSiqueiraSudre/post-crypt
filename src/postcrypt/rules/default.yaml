@@ -1,0 +1,74 @@
+# Regras de classificação do Post-Crypt.
+#
+# As regras ficam em dados, não em código: quando um padrão mudar (um grupo
+# novo, uma data revisada pelo NIST), atualiza-se este arquivo, e a ferramenta
+# continua a mesma. Isso é cripto-agilidade aplicada à própria ferramenta.
+#
+# Para usar regras próprias: postcrypt scan escopo.yaml --rules minhas-regras.yaml
+
+version: 1
+updated: "2026-10-17"
+
+references:
+  - id: FIPS-203
+    title: "NIST FIPS 203 — Module-Lattice-Based Key-Encapsulation Mechanism Standard (ML-KEM), 2024"
+  - id: FIPS-204
+    title: "NIST FIPS 204 — Module-Lattice-Based Digital Signature Standard (ML-DSA), 2024"
+  - id: NIST-IR-8547
+    title: "NIST IR 8547 (rascunho, nov. 2024) — Transition to Post-Quantum Cryptography Standards"
+  - id: RFC-8446
+    title: "RFC 8446 — The Transport Layer Security (TLS) Protocol Version 1.3"
+  - id: DRAFT-ECDHE-MLKEM
+    title: "draft-ietf-tls-ecdhe-mlkem — Post-quantum hybrid ECDHE-MLKEM Key Agreement for TLSv1.3"
+
+# Troca de chave: é aqui que mora o risco "Harvest Now, Decrypt Later".
+key_exchange_groups:
+  X25519MLKEM768: hybrid
+  SecP256r1MLKEM768: hybrid
+  SecP384r1MLKEM1024: hybrid
+  MLKEM512: pure
+  MLKEM768: pure
+  MLKEM1024: pure
+  X25519Kyber768Draft00: obsolete   # pré-padrão; navegadores já removeram
+  x25519: classical
+  x448: classical
+  secp256r1: classical
+  secp384r1: classical
+  secp521r1: classical
+  ffdhe2048: classical
+  ffdhe3072: classical
+  ffdhe4096: classical
+  ffdhe6144: classical
+  ffdhe8192: classical
+
+# Cifra simétrica: Grover reduz a margem pela metade; AES-256 segue robusto.
+symmetric:
+  AES_256_GCM: { status: ok }
+  CHACHA20_POLY1305: { status: ok }
+  AES_256_CBC: { status: ok }
+  AES_128_GCM: { status: ok, note: "Aceito pelo NIST; a CNSA 2.0 exige AES-256." }
+  AES_128_CCM: { status: ok, note: "Aceito pelo NIST; a CNSA 2.0 exige AES-256." }
+  AES_128_CBC: { status: ok, note: "Aceito pelo NIST; a CNSA 2.0 exige AES-256." }
+  3DES_EDE_CBC: { status: weak, note: "3DES é fraco mesmo sem computador quântico." }
+
+# Chave pública do certificado (autenticação). Não é risco HNDL: assinatura
+# quebrada no futuro não decifra tráfego gravado, mas precisa migrar antes.
+# Datas do NIST IR 8547 (rascunho): 112 bits de segurança são depreciados
+# após 2030; tudo que é vulnerável a quântico é proibido após 2035.
+public_keys:
+  RSA:
+    quantum_vulnerable: true
+    deprecated_after_if_bits_below: { bits: 3072, year: 2030 }
+    disallowed_after: 2035
+  EC:
+    quantum_vulnerable: true
+    deprecated_after_if_bits_below: { bits: 256, year: 2030 }
+    disallowed_after: 2035
+  Ed25519: { quantum_vulnerable: true, disallowed_after: 2035 }
+  Ed448: { quantum_vulnerable: true, disallowed_after: 2035 }
+  ML-DSA-44: { quantum_vulnerable: false }
+  ML-DSA-65: { quantum_vulnerable: false }
+  ML-DSA-87: { quantum_vulnerable: false }
+
+certificates:
+  expiry_warning_days: 30   # RTS (UE) 2024/1774, art. 7(5): renovar antes do vencimento
