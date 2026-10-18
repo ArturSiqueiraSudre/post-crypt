@@ -1,0 +1,11 @@
+# Exemplo de escopo que o Post-Crypt RECUSA (usado na demonstração).
+# Faixas de IP e curingas não são aceitos: cada serviço precisa ser listado.
+
+authorization:
+  by: "Equipe Post-Crypt"
+  date: 2026-10-19
+  reference: "Demonstração: escopo inválido"
+
+targets:
+  - host: 10.0.0.0/24      # faixa inteira: recusada
+    port: 443

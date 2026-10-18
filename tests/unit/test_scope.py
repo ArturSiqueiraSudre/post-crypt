@@ -65,3 +65,9 @@ def test_example_scope_is_valid():
     path = Path(__file__).resolve().parents[2] / "examples" / "escopo-exemplo.yaml"
     scope = load_scope(path)
     assert [t.owner for t in scope.targets] == ["self", "third_party"]
+
+
+def test_demo_refused_scope_is_refused():
+    path = Path(__file__).resolve().parents[2] / "examples" / "escopo-recusado.yaml"
+    with pytest.raises(ScopeError, match="faixa ou curinga"):
+        load_scope(path)
