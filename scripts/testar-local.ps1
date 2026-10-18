@@ -3,7 +3,7 @@
 # Uso (PowerShell, na raiz do repositório):
 #   powershell -ExecutionPolicy Bypass -File scripts\testar-local.ps1
 #
-# Etapas: ambiente -> ruff -> pytest -> bandit -> pip-audit -> laboratório.
+# Etapas: ambiente -> ruff -> pytest -> bandit -> pip-audit -> laboratório -> ensaio da demo.
 # Cada etapa grava o próprio log em resultado-testes\, e
 # resultado-testes\resumo.txt traz o veredito de cada uma.
 #
@@ -179,6 +179,12 @@ if ($modo -eq "nenhum") {
         }
         if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
     }
+}
+
+# ---------------------------------------------------------------- demonstração
+# Ensaia scripts\demo.ps1 sem pausas: cada passo precisa dar o resultado esperado.
+if ($Laboratorio -ne "nenhum") {
+    Etapa "demo-ensaio" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\demo.ps1 -SemPausa" | Out-Null
 }
 
 # ---------------------------------------------------------------- fim
