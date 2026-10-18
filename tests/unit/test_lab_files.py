@@ -43,3 +43,11 @@ def test_gabarito_checker_flags_divergence():
     assert check(result, {"a": {"status": "pqc", "findings": ["CERT_EXPIRING"]}}) == []
     assert check(result, {"a": {"status": "hndl_vulnerable"}})
     assert check(result, {"b": {"status": "pqc"}}) == ["b: ausente do resultado"]
+
+
+def test_python_lab_matches_lab_scope():
+    """Laboratório sem Docker: mesmas portas e nomes do escopo do laboratório."""
+    services = _load("servidores_python").SERVICES
+    scope = load_scope(LAB / "escopo-lab.yaml")
+    tls_targets = {t.label: t.port for t in scope.targets if t.label != "desligado"}
+    assert {name: port for name, (port, _mode) in services.items()} == tls_targets

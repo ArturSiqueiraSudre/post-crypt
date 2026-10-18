@@ -3,17 +3,26 @@
 # Uso (PowerShell, na raiz do repositório):
 #   powershell -ExecutionPolicy Bypass -File scripts\testar-local.ps1
 #
-# Etapas: ambiente -> ruff -> pytest -> bandit -> pip-audit -> laboratório
-# (Docker) -> demonstração. Cada etapa grava o próprio log em
-# resultado-testes\, e resultado-testes\resumo.txt traz o veredito de cada uma.
+# Etapas: ambiente -> ruff -> pytest -> bandit -> pip-audit -> laboratório.
+# Cada etapa grava o próprio log em resultado-testes\, e
+# resultado-testes\resumo.txt traz o veredito de cada uma.
+#
+# Laboratório (-Laboratorio):
+#   auto    Docker se estiver disponível; senão, servidores em Python (padrão)
+#   docker  nginx com OpenSSL 3.5 via docker compose
+#   python  lab\servidores_python.py, mesmos casos e portas, sem Docker
+#   nenhum  pula o laboratório
 #
 # Ferramentas auxiliares (uv e o Python com OpenSSL 3.5) ficam em
 # ..\.ferramentas, fora do repositório e fora do disco C:.
 
 param(
     [string]$Ferramentas = (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) ".ferramentas"),
-    [switch]$SemLaboratorio
+    [ValidateSet("auto", "docker", "python", "nenhum")]
+    [string]$Laboratorio = "auto",
+    [switch]$SemLaboratorio   # atalho antigo para -Laboratorio nenhum
 )
+if ($SemLaboratorio) { $Laboratorio = "nenhum" }
 
 $ErrorActionPreference = "Continue"
 $Repo = Split-Path -Parent $PSScriptRoot
@@ -108,30 +117,68 @@ Etapa "bandit" "`"$Py`" -m bandit -r src -c pyproject.toml" | Out-Null
 Etapa "pip-audit" "`"$Py`" -m pip_audit --skip-editable" -Opcional | Out-Null
 
 # ---------------------------------------------------------------- laboratório
-$docker = Get-Command docker -ErrorAction SilentlyContinue
-$dockerOk = $false
-if ($docker) {
-    cmd.exe /d /c "docker info > nul 2>&1"
-    $dockerOk = ($LASTEXITCODE -eq 0)
+function Esperar-Porta([int]$porta, [int]$segundos = 30) {
+    foreach ($i in 1..$segundos) {
+        $c = New-Object Net.Sockets.TcpClient
+        try {
+            if ($c.ConnectAsync("127.0.0.1", $porta).Wait(500) -and $c.Connected) { return $true }
+        } catch {} finally { $c.Close() }
+        Start-Sleep -Seconds 1
+    }
+    return $false
 }
-if ($SemLaboratorio) {
-    Registrar "PULADO laboratorio             (-SemLaboratorio)"
-} elseif (-not $dockerOk) {
-    Registrar "PULADO laboratorio             (Docker indisponível ou Docker Desktop fechado)"
+
+function Conferir-Laboratorio {
+    Etapa "lab-varredura" "`"$Py`" -m postcrypt scan lab\escopo-lab.yaml --json resultado-testes\lab-resultado.json" | Out-Null
+    Etapa "lab-gabarito" "`"$Py`" lab\verificar_gabarito.py resultado-testes\lab-resultado.json" | Out-Null
+}
+
+$modo = $Laboratorio
+if ($modo -eq "auto") {
+    $modo = "python"
+    if (Get-Command docker -ErrorAction SilentlyContinue) {
+        cmd.exe /d /c "docker info > nul 2>&1"
+        if ($LASTEXITCODE -eq 0) { $modo = "docker" }
+    }
+}
+
+if ($modo -eq "nenhum") {
+    Registrar "PULADO laboratorio             (-Laboratorio nenhum)"
 } else {
     Etapa "lab-certificados" "`"$Py`" lab\gerar_certificados.py" | Out-Null
-    $subiu = Etapa "lab-subir" "docker compose -f lab\docker-compose.yml up -d"
-    if ($subiu -eq 0) {
-        foreach ($i in 1..30) {
-            $c = New-Object Net.Sockets.TcpClient
-            try { if ($c.ConnectAsync("127.0.0.1", 8445).Wait(500) -and $c.Connected) { break } } catch {} finally { $c.Close() }
-            Start-Sleep -Seconds 1
+
+    if ($modo -eq "docker") {
+        $subiu = Etapa "lab-docker-subir" "docker compose -f lab\docker-compose.yml up -d" -Opcional:($Laboratorio -eq "auto")
+        if ($subiu -eq 0) {
+            Registrar "Laboratório: docker (nginx)"
+            Esperar-Porta 8445 | Out-Null
+            Conferir-Laboratorio
+            cmd.exe /d /c "docker compose -f lab\docker-compose.yml exec -T tls nginx -V > `"$Saida\lab-nginx-versao.log`" 2>&1"
+            Etapa "lab-docker-desligar" "docker compose -f lab\docker-compose.yml down" -Opcional | Out-Null
+        } elseif ($Laboratorio -eq "auto") {
+            Registrar "AVISO  Docker não subiu o nginx; usando o laboratório em Python"
+            $modo = "python"
         }
-        Etapa "lab-varredura" "`"$Py`" -m postcrypt scan lab\escopo-lab.yaml --json resultado-testes\lab-resultado.json" | Out-Null
-        Etapa "lab-gabarito" "`"$Py`" lab\verificar_gabarito.py resultado-testes\lab-resultado.json" | Out-Null
-        cmd.exe /d /c "docker compose -f lab\docker-compose.yml exec -T tls nginx -V > `"$Saida\lab-nginx-versao.log`" 2>&1"
     }
-    Etapa "lab-desligar" "docker compose -f lab\docker-compose.yml down" -Opcional | Out-Null
+
+    if ($modo -eq "python") {
+        $logLab = Join-Path $Saida "lab-servidores.log"
+        $errLab = Join-Path $Saida "lab-servidores-erros.log"
+        $proc = Start-Process -FilePath $Py -ArgumentList @("lab\servidores_python.py", "--duracao", "300") `
+            -WorkingDirectory $Repo -NoNewWindow -PassThru `
+            -RedirectStandardOutput $logLab -RedirectStandardError $errLab
+        if (Esperar-Porta 8445) {
+            $versao = "OpenSSL ?"
+            $linha = (Get-Content $logLab -Encoding UTF8 | Select-String "OpenSSL" | Select-Object -First 1)
+            if ($linha -and ($linha.Line -match "OpenSSL [0-9.]+")) { $versao = $Matches[0] }
+            Registrar "Laboratório: python ($versao)"
+            Conferir-Laboratorio
+        } else {
+            $script:Falhas++
+            Registrar "FALHOU lab-python-subir         (servidores não abriram a porta 8445; ver lab-servidores-erros.log)"
+        }
+        if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 # ---------------------------------------------------------------- fim

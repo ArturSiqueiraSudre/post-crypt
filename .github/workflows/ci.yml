@@ -27,10 +27,10 @@ jobs:
       - name: Testes (unitários e integração)
         run: .venv/Scripts/python.exe -m pytest
 
-      - name: Script de teste local (Windows PowerShell 5.1)
+      - name: Script de teste local com laboratório em Python (Windows PowerShell 5.1)
         shell: powershell
         run: |
-          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\testar-local.ps1 -SemLaboratorio
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\testar-local.ps1 -Laboratorio python
           Get-Content resultado-testes\resumo.txt -Encoding UTF8
           if ($LASTEXITCODE -ne 0) { exit 1 }
 

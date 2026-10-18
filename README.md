@@ -90,6 +90,12 @@ python lab/verificar_gabarito.py resultado.json
 
 O CI roda exatamente isso a cada push e falha se algum serviço divergir do [gabarito](lab/gabarito.yaml).
 
+Sem Docker, os mesmos casos e portas sobem em Python (o caso híbrido precisa de OpenSSL 3.5+, como o Python instalado pelo uv):
+
+```bash
+python lab/servidores_python.py          # Ctrl+C para parar
+```
+
 ## Desenvolvimento
 
 ```bash
@@ -102,10 +108,11 @@ pip-audit --skip-editable
 
 O teste de integração do servidor híbrido precisa de um Python com OpenSSL 3.5+; sem ele, o teste é pulado e o restante roda normalmente.
 
-No Windows, uma bateria completa (ambiente, ruff, pytest, bandit, pip-audit e, com o Docker Desktop aberto, o laboratório) roda com:
+No Windows, uma bateria completa (ambiente, ruff, pytest, bandit, pip-audit e laboratório: Docker se estiver aberto, senão Python) roda com:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\testar-local.ps1
+powershell -ExecutionPolicy Bypass -File scripts\testar-local.ps1 -Laboratorio python   # força o laboratório sem Docker
 ```
 
 Os logs de cada etapa e o `resumo.txt` ficam em `resultado-testes\`.
