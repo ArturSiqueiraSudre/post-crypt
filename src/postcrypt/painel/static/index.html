@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="pc-token" content="{{TOKEN}}">
+  <title>Post-Crypt</title>
+  <link rel="icon" href="/static/icone.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/painel.css">
+  <script src="/static/painel.js" defer></script>
+</head>
+<body>
+  <header class="topo">
+    <div class="topo-dentro">
+      <a class="marca" href="/" aria-label="Post-Crypt, início">
+        <img src="/static/icone.svg" alt="" width="28" height="28">
+        <span>Post-Crypt</span>
+      </a>
+      <p class="local"><span class="ponto" aria-hidden="true"></span>Tudo roda neste computador. Nada é enviado para a internet.</p>
+    </div>
+  </header>
+
+  <main class="pagina">
+    <section class="abertura">
+      <h1>Descubra quais serviços da sua empresa já estão prontos para a era quântica</h1>
+      <p>Liste os sistemas que você quer verificar, diga quem autorizou e clique em varrer. O Post-Crypt responde, para cada um, se o tráfego gravado hoje pode ser aberto no futuro, se a cifra é forte e se o certificado está em dia.</p>
+    </section>
+
+    <form id="form-escopo" novalidate>
+      <section class="passo" aria-labelledby="passo1-titulo">
+        <div class="passo-num" aria-hidden="true">1</div>
+        <div class="passo-corpo">
+          <h2 id="passo1-titulo">Quem autorizou esta varredura</h2>
+          <p class="ajuda">Só varra sistemas que você tem permissão para testar. Esse registro sai junto com o resultado.</p>
+          <div class="campos-autorizacao">
+            <label class="campo">
+              <span>Nome e cargo de quem autorizou</span>
+              <input name="by" type="text" autocomplete="name" placeholder="Maria Souza, gerente de TI" required>
+            </label>
+            <label class="campo campo-data">
+              <span>Data da autorização</span>
+              <input name="date" type="date" required>
+            </label>
+            <label class="campo">
+              <span>Documento de referência <em>(opcional)</em></span>
+              <input name="reference" type="text" placeholder="Termo de escopo nº 01/2026">
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section class="passo" aria-labelledby="passo2-titulo">
+        <div class="passo-num" aria-hidden="true">2</div>
+        <div class="passo-corpo">
+          <div class="passo-cabeca">
+            <h2 id="passo2-titulo">Quais serviços verificar</h2>
+            <div class="acoes-arquivo">
+              <label class="botao botao-leve">
+                Abrir arquivo de escopo
+                <input id="arquivo-escopo" type="file" accept=".yaml,.yml,text/yaml" class="escondido">
+              </label>
+              <button type="button" id="salvar-escopo" class="botao botao-leve">Salvar escopo</button>
+              <button type="button" id="usar-lab" class="botao botao-leve" hidden>Usar laboratório de teste</button>
+            </div>
+          </div>
+          <p class="ajuda">Um serviço é um endereço e uma porta, como o site da empresa (porta 443) ou a VPN. O Post-Crypt só conversa com o que estiver nesta lista.</p>
+
+          <div class="cabecalho-alvos" aria-hidden="true">
+            <span>Nome</span><span>Endereço</span><span>Porta</span><span>De quem é</span><span>Nome no certificado</span><span></span>
+          </div>
+          <ol id="lista-alvos" class="lista-alvos"></ol>
+          <button type="button" id="adicionar-alvo" class="botao botao-leve botao-adicionar">Adicionar serviço</button>
+
+          <details class="avancado">
+            <summary>Opções avançadas</summary>
+            <div class="campos-avancados">
+              <label class="campo">
+                <span>Tempo limite por serviço, em segundos</span>
+                <input name="timeout" type="number" min="1" max="60" step="1" value="5">
+              </label>
+              <label class="campo">
+                <span>Serviços verificados ao mesmo tempo</span>
+                <input name="workers" type="number" min="1" max="32" step="1" value="8">
+              </label>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section class="passo" aria-labelledby="passo3-titulo">
+        <div class="passo-num" aria-hidden="true">3</div>
+        <div class="passo-corpo">
+          <h2 id="passo3-titulo" class="visualmente-escondido">Varrer</h2>
+          <div class="barra-acao">
+            <button type="submit" id="varrer" class="botao botao-principal">Varrer</button>
+            <div id="progresso" class="progresso" hidden>
+              <div class="progresso-trilho"><div class="progresso-barra" id="progresso-barra"></div></div>
+              <p id="progresso-texto" aria-live="polite"></p>
+            </div>
+          </div>
+          <div id="mensagem" class="mensagem" role="alert" hidden></div>
+        </div>
+      </section>
+    </form>
+
+    <section id="resultado" class="resultado" hidden aria-labelledby="resultado-titulo" tabindex="-1">
+      <h2 id="resultado-titulo"></h2>
+      <p id="resultado-detalhe" class="resultado-detalhe"></p>
+
+      <div id="faixa" class="faixa" role="img"></div>
+      <ul id="legenda" class="legenda"></ul>
+
+      <div class="resultado-cabeca">
+        <h3>Serviço por serviço</h3>
+        <button type="button" id="baixar-json" class="botao botao-leve">Baixar resultado (JSON)</button>
+      </div>
+      <p class="ajuda">Clique em um serviço para ver o que fazer e os dados técnicos.</p>
+      <div class="colunas-servicos" aria-hidden="true">
+        <span>Serviço</span><span>Situação</span><span>Tráfego gravado hoje</span><span>Cifra</span><span>Certificado</span>
+      </div>
+      <div id="servicos" class="servicos"></div>
+      <p id="carimbo" class="carimbo"></p>
+    </section>
+  </main>
+
+  <footer class="rodape">
+    <p>Post-Crypt {{VERSAO}}. Projeto de Engenharia da Computação, Universidade Presbiteriana Mackenzie.</p>
+  </footer>
+
+  <template id="tpl-alvo">
+    <li class="alvo">
+      <label class="campo"><span class="rotulo-movel">Nome</span>
+        <input data-campo="label" type="text" placeholder="Site da empresa"></label>
+      <label class="campo"><span class="rotulo-movel">Endereço</span>
+        <input data-campo="host" type="text" placeholder="www.empresa.com.br ou 10.0.0.5" required spellcheck="false" autocapitalize="off"></label>
+      <label class="campo"><span class="rotulo-movel">Porta</span>
+        <input data-campo="port" type="number" min="1" max="65535" value="443" required></label>
+      <label class="campo"><span class="rotulo-movel">De quem é</span>
+        <select data-campo="owner">
+          <option value="self">Da empresa</option>
+          <option value="third_party">De fornecedor</option>
+        </select></label>
+      <label class="campo"><span class="rotulo-movel">Nome no certificado <em>(opcional)</em></span>
+        <input data-campo="sni" type="text" placeholder="Só se o endereço for um IP" spellcheck="false" autocapitalize="off"></label>
+      <button type="button" class="remover" aria-label="Remover serviço">Remover</button>
+    </li>
+  </template>
+</body>
+</html>
