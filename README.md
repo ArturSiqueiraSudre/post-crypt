@@ -11,9 +11,23 @@ Projeto de Engenharia da Computação — Universidade Presbiteriana Mackenzie, 
 | Incremento | Entrega | Situação |
 | --- | --- | --- |
 | **I0 — Esqueleto** | `postcrypt scan` para TLS, classificador por regras, JSON e tabela | **Pronto** |
+| **Painel web local** | Varredura pelo navegador, sem terminal (adiantado do I2) | **Pronto** |
 | I1 — Inventário completo | Sonda SSH, SQLite, CBOM CycloneDX 1.6 | Próximo |
-| I2 — Evidência | Relatório HTML/PDF, registro de certificados, assinatura ML-DSA e `verify`, painel web local | Planejado |
+| I2 — Evidência | Relatório HTML/PDF, registro de certificados, assinatura ML-DSA e `verify` | Planejado |
 | I3 — Validação | Benchmarks sob latência e perda, POCs, testes de usabilidade | Planejado |
+
+## Painel (sem terminal)
+
+Para quem não usa linha de comando: no Windows, dê **dois cliques em `abrir-painel.cmd`** na pasta do projeto. Na primeira vez ele prepara o ambiente com o [uv](https://docs.astral.sh/uv/) (`winget install astral-sh.uv`); depois abre direto no navegador. Em qualquer sistema, o mesmo painel abre com:
+
+```bash
+postcrypt painel                  # abre http://127.0.0.1:8765 no navegador
+postcrypt painel --porta 9000 --sem-navegador
+```
+
+No painel a pessoa preenche quem autorizou, lista os serviços (ou abre um arquivo de escopo), clica em **Varrer** e recebe, para cada serviço, três respostas em linguagem simples: se o tráfego gravado hoje pode ser aberto no futuro, se a cifra é forte e se o certificado está em dia. O resultado pode ser baixado no mesmo JSON da linha de comando. No clone do repositório, o botão **Usar laboratório de teste** liga os seis serviços do laboratório e desliga ao fechar o painel.
+
+O painel segue as regras da ferramenta: escuta só em `127.0.0.1`, recusa pedidos que não venham da própria página (token por execução e checagem do cabeçalho `Host`, contra DNS rebinding), passa pelo mesmo validador de escopo, não grava nada em disco e nunca monta dados da varredura como HTML. As cores da marca ficam em `:root`, no topo de `src/postcrypt/painel/static/painel.css`.
 
 ## Como usar
 

@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="pc-token" content="{{TOKEN}}">
+  <title>Post-Crypt</title>
+  <link rel="icon" href="/static/icone.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/painel.css">
+  <script src="/static/painel.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <aside class="lateral">
+      <a class="marca" href="#autorizacao" data-ir-para="autorizacao" aria-label="Post-Crypt, início">
+        <img src="/static/icone.svg" alt="" width="40" height="40">
+        <span>Post-Crypt</span>
+      </a>
+
+      <nav class="menu" aria-label="Etapas e ajuda">
+        <p class="menu-titulo" id="menu-varredura">Varredura</p>
+        <ol class="menu-lista" aria-labelledby="menu-varredura">
+          <li><button type="button" class="menu-item" id="nav-autorizacao" data-vista="autorizacao" aria-current="step"><span class="menu-num" aria-hidden="true">1</span><span class="menu-texto">Autorização</span></button></li>
+          <li><button type="button" class="menu-item" id="nav-servicos" data-vista="servicos"><span class="menu-num" aria-hidden="true">2</span><span class="menu-texto">Serviços</span></button></li>
+          <li><button type="button" class="menu-item" id="nav-revisar" data-vista="revisar"><span class="menu-num" aria-hidden="true">3</span><span class="menu-texto">Revisar e varrer</span></button></li>
+          <li><button type="button" class="menu-item" id="nav-resultado" data-vista="resultado" disabled><span class="menu-num" aria-hidden="true">4</span><span class="menu-texto">Resultado</span></button></li>
+        </ol>
+        <p class="menu-titulo" id="menu-ajuda">Ajuda</p>
+        <ul class="menu-lista" aria-labelledby="menu-ajuda">
+          <li><button type="button" class="menu-item" id="nav-guia" data-vista="guia"><span class="menu-num" aria-hidden="true">?</span><span class="menu-texto">Guia do arquivo de escopo</span></button></li>
+        </ul>
+      </nav>
+
+      <div class="lateral-rodape">
+        <p class="local"><span class="ponto" aria-hidden="true"></span>Tudo roda neste computador. Nada é enviado para a internet.</p>
+        <p>Post-Crypt {{VERSAO}}. Projeto de Engenharia da Computação, Universidade Presbiteriana Mackenzie.</p>
+      </div>
+    </aside>
+
+    <div class="area">
+      <header class="barra">
+        <p class="barra-etapa" id="barra-etapa">Etapa 1 de 4</p>
+        <h1 id="barra-titulo" tabindex="-1">Quem autorizou esta varredura</h1>
+      </header>
+
+      <main class="conteudo" id="conteudo">
+        <div class="conteudo-dentro">
+          <div id="mensagem" class="mensagem" role="alert" hidden></div>
+
+          <form id="form-escopo" novalidate>
+            <section id="vista-autorizacao" class="vista" aria-labelledby="barra-titulo">
+              <p class="vista-intro">O Post-Crypt verifica os serviços que você listar e responde, para cada um, se o tráfego gravado hoje pode ser aberto no futuro, se a cifra é forte e se o certificado está em dia. Só varra sistemas que você tem permissão para testar: este registro sai junto com o resultado.</p>
+              <div class="cartao">
+                <div class="campos-autorizacao">
+                  <label class="campo">
+                    <span>Nome e cargo de quem autorizou</span>
+                    <input name="by" type="text" autocomplete="name" placeholder="Maria Souza, gerente de TI" required>
+                  </label>
+                  <label class="campo campo-data">
+                    <span>Data da autorização</span>
+                    <input name="date" type="date" required>
+                  </label>
+                  <label class="campo campo-largo">
+                    <span>Documento de referência <em>(opcional)</em></span>
+                    <input name="reference" type="text" placeholder="Termo de escopo nº 01/2026">
+                  </label>
+                </div>
+              </div>
+            </section>
+
+            <section id="vista-servicos" class="vista" aria-labelledby="barra-titulo" hidden>
+              <div class="vista-cabeca">
+                <p class="vista-intro">Um serviço é um endereço e uma porta, como o site da empresa (porta 443) ou a VPN. O Post-Crypt só conversa com o que estiver nesta lista. <a href="#guia" data-ir-para="guia">Não sabe o que preencher? Veja o guia.</a></p>
+                <div class="acoes-arquivo">
+                  <label class="botao botao-leve">
+                    Abrir arquivo de escopo
+                    <input id="arquivo-escopo" type="file" accept=".yaml,.yml,text/yaml" class="escondido">
+                  </label>
+                  <button type="button" id="salvar-escopo" class="botao botao-leve">Salvar escopo</button>
+                  <button type="button" id="usar-lab" class="botao botao-leve" hidden>Usar laboratório de teste</button>
+                </div>
+              </div>
+              <div class="cartao">
+                <div class="cabecalho-alvos" aria-hidden="true">
+                  <span>Nome</span><span>Endereço</span><span>Porta</span><span>De quem é</span><span>Nome no certificado</span><span></span>
+                </div>
+                <ol id="lista-alvos" class="lista-alvos"></ol>
+                <button type="button" id="adicionar-alvo" class="botao botao-leve botao-adicionar">Adicionar serviço</button>
+              </div>
+            </section>
+
+            <section id="vista-revisar" class="vista" aria-labelledby="barra-titulo" hidden>
+              <p class="vista-intro">Confira o que será verificado. Nada é contatado antes de você clicar em Varrer.</p>
+              <div class="cartao">
+                <h2>Autorização</h2>
+                <dl id="revisao-autorizacao" class="tecnico"></dl>
+              </div>
+              <div class="cartao">
+                <h2>Serviços <span id="revisao-contagem" class="contagem"></span></h2>
+                <div id="revisao-servicos" class="guia-tabela"></div>
+              </div>
+              <details class="avancado cartao">
+                <summary>Opções avançadas</summary>
+                <div class="campos-avancados">
+                  <label class="campo">
+                    <span>Tempo limite por serviço, em segundos</span>
+                    <input name="timeout" type="number" min="1" max="60" step="1" value="5">
+                  </label>
+                  <label class="campo">
+                    <span>Serviços verificados ao mesmo tempo</span>
+                    <input name="workers" type="number" min="1" max="32" step="1" value="8">
+                  </label>
+                </div>
+              </details>
+              <div id="progresso" class="cartao progresso" hidden>
+                <h2>Andamento</h2>
+                <div class="progresso-trilho"><div class="progresso-barra" id="progresso-barra"></div></div>
+                <p id="progresso-texto" aria-live="polite"></p>
+                <ol id="andamento" class="andamento"></ol>
+              </div>
+            </section>
+          </form>
+
+          <section id="vista-resultado" class="vista resultado" aria-labelledby="barra-titulo" hidden>
+            <h2 id="resultado-titulo"></h2>
+            <p id="resultado-detalhe" class="resultado-detalhe"></p>
+
+            <div id="faixa" class="faixa" role="img"></div>
+            <ul id="legenda" class="legenda"></ul>
+
+            <div class="resultado-cabeca">
+              <h3>Serviço por serviço</h3>
+              <button type="button" id="baixar-json" class="botao botao-leve">Baixar resultado (JSON)</button>
+            </div>
+            <p class="ajuda">Clique em um serviço para ver o que fazer e os dados técnicos.</p>
+            <div class="colunas-servicos" aria-hidden="true">
+              <span>Serviço</span><span>Situação</span><span>Tráfego gravado hoje</span><span>Cifra</span><span>Certificado</span>
+            </div>
+            <div id="servicos" class="servicos"></div>
+            <p id="carimbo" class="carimbo"></p>
+          </section>
+
+        <article id="vista-guia" class="vista guia" aria-labelledby="barra-titulo" hidden>
+          <p class="guia-intro">O arquivo de escopo é a lista dos serviços que o Post-Crypt tem permissão para verificar, junto com o nome de quem autorizou. Sem ele não há varredura: a ferramenta nunca procura sistemas por conta própria.</p>
+
+          <nav class="guia-indice" aria-label="Neste guia">
+            <a href="#guia-painel">Pelo painel</a>
+            <a href="#guia-manual">Escrever à mão</a>
+            <a href="#guia-campos">O que vai em cada campo</a>
+            <a href="#guia-endereco">Achar endereço e porta</a>
+            <a href="#guia-recusas">O que é recusado</a>
+            <a href="#guia-erros">Mensagens de erro</a>
+          </nav>
+
+          <section class="guia-secao" id="guia-painel" aria-labelledby="guia-painel-titulo">
+            <h2 id="guia-painel-titulo">Jeito mais fácil: montar pelo painel</h2>
+            <p>Você não precisa escrever o arquivo. As etapas Autorização e Serviços montam e conferem tudo para você.</p>
+            <ol class="guia-passos">
+              <li><strong>Na etapa Autorização, diga quem autorizou.</strong> Nome e cargo da pessoa que permitiu o teste e a data da autorização. Se existir um documento (termo, e-mail, chamado), anote no campo de referência.</li>
+              <li><strong>Na etapa Serviços, adicione um serviço por linha.</strong> Cada linha é um endereço e uma porta. Use o botão Adicionar serviço para incluir mais.</li>
+              <li><strong>Clique em Salvar escopo.</strong> O painel confere os dados e baixa o arquivo <code>escopo.yaml</code> para o seu computador.</li>
+              <li><strong>Na próxima vez, clique em Abrir arquivo de escopo.</strong> As etapas são preenchidas de novo com o que você salvou, prontas para varrer.</li>
+            </ol>
+            <p><a class="botao botao-leve" href="#servicos" data-ir-para="servicos">Ir para a etapa Serviços</a></p>
+          </section>
+
+          <section class="guia-secao" id="guia-manual" aria-labelledby="guia-manual-titulo">
+            <h2 id="guia-manual-titulo">Se preferir escrever à mão</h2>
+            <p>O arquivo é um texto simples com a extensão <code>.yaml</code>. Baixe o modelo, abra no Bloco de Notas e troque os exemplos pelos seus dados.</p>
+            <div class="guia-codigo">
+              <div class="guia-codigo-acoes">
+                <button type="button" id="copiar-modelo" class="botao botao-leve">Copiar modelo</button>
+                <button type="button" id="baixar-modelo" class="botao botao-leve">Baixar modelo</button>
+              </div>
+              <pre tabindex="0" aria-label="Modelo de arquivo de escopo"><code id="guia-modelo"># Arquivo de escopo do Post-Crypt.
+# Linhas que começam com # são anotações: pode apagar.
+
+authorization:
+  by: "Maria Souza (gerente de TI)"         # quem autorizou a varredura
+  date: 2026-11-11                          # quando autorizou: ano-mês-dia
+  reference: "Termo de escopo nº 01/2026"   # opcional
+
+targets:
+  - host: www.suaempresa.com.br   # endereço, sem https://
+    port: 443
+    label: Site da empresa
+
+  - host: vpn.suaempresa.com.br
+    port: 443
+    label: Portal VPN
+
+  - host: 10.0.10.25              # endereço IP também vale
+    port: 8443
+    label: Sistema do fornecedor
+    owner: third_party            # o serviço é de um fornecedor
+    sni: api.fornecedor.com.br    # nome no certificado, quando o endereço é um IP
+</code></pre>
+            </div>
+            <p id="guia-aviso" class="guia-aviso" role="status" aria-live="polite" hidden></p>
+            <ul class="guia-dicas">
+              <li><strong>Use espaços, nunca a tecla Tab.</strong> O recuo de dois espaços no começo das linhas faz parte do formato.</li>
+              <li><strong>Cada serviço começa com um traço</strong> (<code>- host:</code>) e as outras linhas dele ficam alinhadas logo abaixo.</li>
+              <li><strong>Salve como <code>escopo.yaml</code>.</strong> No Bloco de Notas, escolha "Todos os arquivos" em Tipo e a codificação UTF-8.</li>
+              <li><strong>Confira antes de usar.</strong> Abra o arquivo na etapa Serviços com Abrir arquivo de escopo: se algo estiver errado, o painel diz o quê.</li>
+            </ul>
+          </section>
+
+          <section class="guia-secao" id="guia-campos" aria-labelledby="guia-campos-titulo">
+            <h2 id="guia-campos-titulo">O que vai em cada campo</h2>
+            <h3>Autorização</h3>
+            <div class="guia-tabela">
+              <table>
+                <thead>
+                  <tr><th scope="col">No arquivo</th><th scope="col">No painel</th><th scope="col">Obrigatório</th><th scope="col">O que colocar</th></tr>
+                </thead>
+                <tbody>
+                  <tr><th scope="row"><code>by</code></th><td>Nome e cargo de quem autorizou</td><td>Sim</td><td>A pessoa responsável que permitiu o teste. Exemplo: Maria Souza (gerente de TI).</td></tr>
+                  <tr><th scope="row"><code>date</code></th><td>Data da autorização</td><td>Sim</td><td>Ano, mês e dia, nessa ordem. Exemplo: 2026-11-11.</td></tr>
+                  <tr><th scope="row"><code>reference</code></th><td>Documento de referência</td><td>Não</td><td>Termo, e-mail ou chamado que registra a autorização.</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <h3>Cada serviço</h3>
+            <div class="guia-tabela">
+              <table>
+                <thead>
+                  <tr><th scope="col">No arquivo</th><th scope="col">No painel</th><th scope="col">Obrigatório</th><th scope="col">O que colocar</th></tr>
+                </thead>
+                <tbody>
+                  <tr><th scope="row"><code>host</code></th><td>Endereço</td><td>Sim</td><td>O nome do servidor (www.suaempresa.com.br) ou o número IP (10.0.10.25). Sem https:// e sem barras.</td></tr>
+                  <tr><th scope="row"><code>port</code></th><td>Porta</td><td>Sim</td><td>Um número de 1 a 65535, sem aspas. Sites e a maioria das APIs usam 443.</td></tr>
+                  <tr><th scope="row"><code>label</code></th><td>Nome</td><td>Não</td><td>Um apelido para você reconhecer o serviço no resultado. Exemplo: Portal VPN.</td></tr>
+                  <tr><th scope="row"><code>owner</code></th><td>De quem é</td><td>Não</td><td><code>self</code> quando o serviço é da empresa (é o padrão) ou <code>third_party</code> quando é de um fornecedor.</td></tr>
+                  <tr><th scope="row"><code>sni</code></th><td>Nome no certificado</td><td>Não</td><td>Só quando o endereço é um IP: o nome pelo qual o serviço é conhecido, para o servidor apresentar o certificado certo.</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="ajuda">Serviços de fornecedor precisam da autorização do fornecedor antes de entrar na lista.</p>
+          </section>
+
+          <section class="guia-secao" id="guia-endereco" aria-labelledby="guia-endereco-titulo">
+            <h2 id="guia-endereco-titulo">Como achar o endereço e a porta</h2>
+            <p>Olhe o endereço que você digita para acessar o sistema. O que vem depois de <code>https://</code> e antes da primeira barra é o endereço. Se houver dois-pontos e um número, esse número é a porta; se não houver, a porta é 443.</p>
+            <div class="guia-tabela">
+              <table>
+                <thead>
+                  <tr><th scope="col">Você acessa por</th><th scope="col">Endereço</th><th scope="col">Porta</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>https://www.suaempresa.com.br/login</code></td><td><code>www.suaempresa.com.br</code></td><td>443</td></tr>
+                  <tr><td><code>https://sistema.suaempresa.com.br:8443/painel</code></td><td><code>sistema.suaempresa.com.br</code></td><td>8443</td></tr>
+                  <tr><td><code>https://10.0.10.25:8443</code></td><td><code>10.0.10.25</code></td><td>8443</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p>Para VPN, e-mail e sistemas de fornecedor, peça o endereço e a porta à equipe de TI ou ao fornecedor. Hoje o Post-Crypt verifica serviços que falam TLS direto na porta, como sites, APIs e portais de VPN por navegador. Um serviço de outro tipo aparece no resultado como "Revisar".</p>
+          </section>
+
+          <section class="guia-secao" id="guia-recusas" aria-labelledby="guia-recusas-titulo">
+            <h2 id="guia-recusas-titulo">O que o Post-Crypt recusa, de propósito</h2>
+            <p>Cada serviço precisa aparecer na lista com endereço e porta próprios. Isso garante que só o que foi autorizado seja contatado. Um arquivo com qualquer item abaixo é recusado inteiro, e nenhuma varredura começa.</p>
+            <ul class="guia-recusas">
+              <li>
+                <strong>Faixa de endereços.</strong> Liste cada servidor em uma linha própria.
+                <pre><code data-recusado="faixa">- host: 10.0.0.0/24
+  port: 443</code></pre>
+              </li>
+              <li>
+                <strong>Curinga.</strong> Escreva o nome completo de cada serviço.
+                <pre><code data-recusado="curinga">- host: "*.suaempresa.com.br"
+  port: 443</code></pre>
+              </li>
+              <li>
+                <strong>Endereço com https:// ou barras.</strong> Use só o nome do servidor.
+                <pre><code data-recusado="url">- host: https://www.suaempresa.com.br
+  port: 443</code></pre>
+              </li>
+              <li>
+                <strong>Serviço sem porta.</strong> O endereço e a porta são sempre obrigatórios.
+                <pre><code data-recusado="sem-porta">- host: www.suaempresa.com.br</code></pre>
+              </li>
+              <li>
+                <strong>Porta entre aspas ou fora de 1 a 65535.</strong> Escreva só o número.
+                <pre><code data-recusado="porta">- host: www.suaempresa.com.br
+  port: "443"</code></pre>
+              </li>
+              <li>
+                <strong>Campo que não existe.</strong> Só valem os campos da tabela acima.
+                <pre><code data-recusado="campo">- host: www.suaempresa.com.br
+  port: 443
+  senha: abc123</code></pre>
+              </li>
+            </ul>
+            <p>Também são recusados o mesmo endereço e porta listados duas vezes e o arquivo sem o bloco de autorização.</p>
+          </section>
+
+          <section class="guia-secao" id="guia-erros" aria-labelledby="guia-erros-titulo">
+            <h2 id="guia-erros-titulo">Mensagens de erro e como resolver</h2>
+            <dl class="guia-erros">
+              <dt>Preencha quem autorizou a varredura e a data da autorização</dt>
+              <dd>Falta o nome ou a data no bloco <code>authorization</code>. Os dois são obrigatórios.</dd>
+              <dt>A data da autorização está incompleta</dt>
+              <dd>Escreva a data como ano-mês-dia, com quatro dígitos no ano: 2026-11-11.</dd>
+              <dt>Adicione pelo menos um serviço</dt>
+              <dd>A lista <code>targets</code> está vazia ou não existe.</dd>
+              <dt>Parece uma faixa ou um curinga</dt>
+              <dd>O endereço tem barra, asterisco ou interrogação. Tire o https:// e liste cada servidor separadamente.</dd>
+              <dt>Endereço inválido</dt>
+              <dd>O endereço tem espaço, acento ou outro símbolo que não vale em nomes de servidor.</dd>
+              <dt>Porta inválida</dt>
+              <dd>A porta precisa ser um número de 1 a 65535, sem aspas.</dd>
+              <dt>Serviço repetido</dt>
+              <dd>O mesmo endereço e a mesma porta aparecem duas vezes. Apague uma das linhas.</dd>
+              <dt>Campos desconhecidos</dt>
+              <dd>Há um campo com nome errado ou que não existe. Confira a grafia com a tabela de campos.</dd>
+              <dt>O arquivo não é um YAML válido</dt>
+              <dd>Quase sempre é recuo: use dois espaços (nunca Tab) e mantenha as linhas de cada serviço alinhadas. Um asterisco no endereço também causa esse erro.</dd>
+            </dl>
+            <p>Quem usa o terminal pode rodar o mesmo arquivo com <code>postcrypt scan escopo.yaml</code>.</p>
+          </section>
+        </article>
+        </div>
+      </main>
+
+      <footer class="acoes" id="acoes">
+        <button type="button" id="voltar" class="botao botao-leve" hidden>Voltar</button>
+        <button type="button" id="continuar" class="botao botao-principal">Continuar</button>
+        <button type="submit" id="varrer" form="form-escopo" class="botao botao-principal" hidden>Varrer</button>
+        <button type="button" id="nova-varredura" class="botao botao-leve" hidden>Nova varredura</button>
+      </footer>
+
+      <div class="estado">
+        <p id="estado-texto" role="status" aria-live="polite">Pronto.</p>
+        <p id="estado-info"></p>
+      </div>
+    </div>
+  </div>
+
+  <template id="tpl-alvo">
+    <li class="alvo">
+      <label class="campo"><span class="rotulo-movel">Nome</span>
+        <input data-campo="label" type="text" placeholder="Site da empresa"></label>
+      <label class="campo"><span class="rotulo-movel">Endereço</span>
+        <input data-campo="host" type="text" placeholder="www.empresa.com.br ou 10.0.0.5" required spellcheck="false" autocapitalize="off"></label>
+      <label class="campo"><span class="rotulo-movel">Porta</span>
+        <input data-campo="port" type="number" min="1" max="65535" value="443" required></label>
+      <label class="campo"><span class="rotulo-movel">De quem é</span>
+        <select data-campo="owner">
+          <option value="self">Da empresa</option>
+          <option value="third_party">De fornecedor</option>
+        </select></label>
+      <label class="campo"><span class="rotulo-movel">Nome no certificado <em>(opcional)</em></span>
+        <input data-campo="sni" type="text" placeholder="Só se o endereço for um IP" spellcheck="false" autocapitalize="off"></label>
+      <button type="button" class="remover" aria-label="Remover serviço">Remover</button>
+    </li>
+  </template>
+</body>
+</html>
