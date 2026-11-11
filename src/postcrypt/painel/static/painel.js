@@ -472,9 +472,101 @@ async function usarLaboratorio() {
   }
 }
 
+// ---------- abas e guia ----------
+
+const ABAS = ["varredura", "guia"];
+
+function abaDoEndereco() {
+  const alvo = location.hash.slice(1);
+  if (ABAS.includes(alvo)) return { aba: alvo, secao: null };
+  // Âncoras do guia (#guia-campos etc.) abrem o guia naquela seção.
+  if (/^guia-[a-z]+$/.test(alvo) && document.getElementById(alvo)) return { aba: "guia", secao: alvo };
+  return { aba: "varredura", secao: null };
+}
+
+function mostrarAba(nome, { focar = false, secao = null } = {}) {
+  const escolhida = ABAS.includes(nome) ? nome : "varredura";
+  for (const aba of ABAS) {
+    const ativa = aba === escolhida;
+    const botao = document.getElementById(`aba-${aba}`);
+    botao.setAttribute("aria-selected", String(ativa));
+    botao.tabIndex = ativa ? 0 : -1;
+    document.getElementById(`painel-${aba}`).hidden = !ativa;
+  }
+  const destino = secao ? document.getElementById(secao) : null;
+  if (destino) destino.scrollIntoView();
+  else if (focar) {
+    window.scrollTo(0, 0);
+    document.getElementById(`painel-${escolhida}`).focus({ preventScroll: true });
+  }
+}
+
+function irParaAba(nome, opcoes) {
+  history.replaceState(null, "", nome === "varredura" ? location.pathname : `#${nome}`);
+  mostrarAba(nome, opcoes);
+}
+
+function teclaNasAbas(evento) {
+  const atual = ABAS.indexOf(evento.target.dataset.aba);
+  if (atual < 0) return;
+  let proxima = null;
+  if (evento.key === "ArrowRight") proxima = (atual + 1) % ABAS.length;
+  else if (evento.key === "ArrowLeft") proxima = (atual - 1 + ABAS.length) % ABAS.length;
+  else if (evento.key === "Home") proxima = 0;
+  else if (evento.key === "End") proxima = ABAS.length - 1;
+  if (proxima === null) return;
+  evento.preventDefault();
+  irParaAba(ABAS[proxima]);
+  document.getElementById(`aba-${ABAS[proxima]}`).focus();
+}
+
+function avisarNoGuia(texto) {
+  const aviso = $("#guia-aviso");
+  aviso.textContent = texto;
+  aviso.hidden = !texto;
+}
+
+async function copiarModelo() {
+  const texto = $("#guia-modelo").textContent;
+  try {
+    await navigator.clipboard.writeText(texto);
+    avisarNoGuia("Modelo copiado. Cole no Bloco de Notas e salve como escopo.yaml.");
+  } catch {
+    avisarNoGuia("Não consegui copiar automaticamente. Selecione o texto do modelo e copie, ou use Baixar modelo.");
+  }
+}
+
+function baixarModelo() {
+  baixar("escopo-modelo.yaml", $("#guia-modelo").textContent, "text/yaml;charset=utf-8");
+  avisarNoGuia("Modelo baixado como escopo-modelo.yaml. Troque os exemplos pelos seus dados antes de usar.");
+}
+
+function iniciarAbas() {
+  for (const aba of ABAS) {
+    const botao = document.getElementById(`aba-${aba}`);
+    botao.addEventListener("click", () => irParaAba(aba));
+    botao.addEventListener("keydown", teclaNasAbas);
+  }
+  for (const link of document.querySelectorAll("[data-ir-para]")) {
+    link.addEventListener("click", (evento) => {
+      evento.preventDefault();
+      irParaAba(link.dataset.irPara, { focar: true });
+    });
+  }
+  window.addEventListener("hashchange", () => {
+    const { aba, secao } = abaDoEndereco();
+    mostrarAba(aba, { secao });
+  });
+  $("#copiar-modelo").addEventListener("click", copiarModelo);
+  $("#baixar-modelo").addEventListener("click", baixarModelo);
+  const { aba, secao } = abaDoEndereco();
+  mostrarAba(aba, { secao });
+}
+
 // ---------- início ----------
 
 async function iniciar() {
+  iniciarAbas();
   adicionarAlvo();
   $("#adicionar-alvo").addEventListener("click", () => adicionarAlvo().querySelector("input").focus());
   $("#form-escopo").addEventListener("submit", varrer);

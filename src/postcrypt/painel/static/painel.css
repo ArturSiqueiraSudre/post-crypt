@@ -99,6 +99,19 @@ a { color: var(--verde); }
 .local { margin: 0; font-size: 0.9rem; color: #C7CDD4; display: flex; align-items: center; gap: 8px; }
 .ponto { width: 8px; height: 8px; border-radius: 50%; background: var(--menta); flex: none; }
 
+/* Abas */
+.abas { background: var(--superficie); border-bottom: 1px solid var(--linha-suave); }
+.abas-dentro { max-width: 1120px; margin: 0 auto; padding: 0 24px; display: flex; gap: 4px; overflow-x: auto; }
+.aba {
+  font: 600 0.98rem/1 var(--fonte-texto); color: var(--suave);
+  background: none; border: 0; border-bottom: 3px solid transparent;
+  padding: 16px 14px 13px; min-height: 48px; cursor: pointer; white-space: nowrap;
+}
+.aba:hover { color: var(--tinta); }
+.aba[aria-selected="true"] { color: var(--verde-forte); border-bottom-color: var(--verde); }
+.aba:focus-visible { outline-offset: -3px; }
+[role="tabpanel"] { outline: none; }
+
 /* Página */
 .pagina { max-width: 1120px; margin: 0 auto; padding: 40px 24px 64px; }
 
@@ -295,6 +308,45 @@ input[aria-invalid="true"] { border-color: var(--laranja); background: var(--lar
 
 .carimbo { color: var(--suave); font-size: 0.85rem; margin-top: 22px; }
 
+/* Guia do arquivo de escopo */
+.guia { max-width: 54rem; }
+.guia .abertura { margin-bottom: 24px; }
+.guia code {
+  font: 0.9em/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  background: var(--lacuna-claro); color: var(--tinta);
+  padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere;
+}
+.guia pre {
+  margin: 0; padding: 16px 18px; overflow-x: auto;
+  background: var(--grafite); border-radius: var(--raio);
+}
+.guia pre code { background: none; color: #E5E7EB; padding: 0; font-size: 0.86rem; overflow-wrap: normal; }
+.guia-indice { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 14px 0; border-top: 1px solid var(--linha-suave); font-size: 0.95rem; }
+.guia-secao { padding: 28px 0; border-top: 1px solid var(--linha-suave); scroll-margin-top: 12px; }
+.guia-secao h2 { font-size: 1.3rem; line-height: 1.3; margin-bottom: 10px; }
+.guia-secao h3 { font-size: 1rem; margin: 22px 0 10px; }
+.guia-secao p { margin: 0 0 14px; }
+.guia-passos, .guia-dicas { margin: 0 0 18px; padding-left: 1.4rem; display: grid; gap: 10px; }
+.guia-passos strong, .guia-dicas strong, .guia-recusas strong { color: var(--tinta); font-weight: 600; }
+.guia-codigo { margin: 0 0 14px; }
+.guia-codigo-acoes { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.guia-aviso {
+  padding: 10px 14px; border-radius: var(--raio-pequeno);
+  border-left: 4px solid var(--verde); background: var(--verde-claro); color: var(--tinta);
+}
+.guia-tabela { overflow-x: auto; margin: 0 0 14px; border: 1px solid var(--linha-suave); border-radius: var(--raio); background: var(--superficie); }
+.guia-tabela table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+.guia-tabela th, .guia-tabela td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--linha-suave); }
+.guia-tabela tbody tr:last-child > * { border-bottom: 0; }
+.guia-tabela thead th { font-size: 0.82rem; font-weight: 500; color: var(--suave); white-space: nowrap; }
+.guia-tabela tbody th { font-weight: 400; white-space: nowrap; }
+.guia-recusas { list-style: none; margin: 0 0 18px; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: 16px; }
+.guia-recusas li { border-left: 4px solid var(--laranja); padding-left: 14px; min-width: 0; }
+.guia-recusas pre { margin-top: 8px; padding: 12px 14px; }
+.guia-erros { margin: 0 0 18px; display: grid; gap: 4px; }
+.guia-erros dt { color: var(--tinta); font-weight: 600; margin-top: 12px; }
+.guia-erros dd { margin: 0; }
+
 .rodape { max-width: 1120px; margin: 0 auto; padding: 24px; color: var(--suave); font-size: 0.85rem; border-top: 1px solid var(--linha-suave); }
 .rodape p { margin: 0; }
 
@@ -319,6 +371,7 @@ input[aria-invalid="true"] { border-color: var(--laranja); background: var(--lar
 
 @media (max-width: 520px) {
   .pagina { padding: 28px 16px 48px; }
+  .abas-dentro { padding: 0 8px; }
   .topo-dentro { padding: 12px 16px; }
   .passo { grid-template-columns: 1fr; gap: 10px; }
   .campos-avancados { grid-template-columns: 1fr; }
