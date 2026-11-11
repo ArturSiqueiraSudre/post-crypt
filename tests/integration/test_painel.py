@@ -171,11 +171,17 @@ class _LeitorDoGuia(HTMLParser):
         self.elementos: list[tuple[str, dict[str, str | None]]] = []
         self.modelo = ""
         self.recusados: dict[str, str] = {}
+        self.no_formulario: set[str] = set()
         self._destino: str | None = None
+        self._dentro_do_form = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         mapa = dict(attrs)
         self.elementos.append((tag, mapa))
+        if tag == "form":
+            self._dentro_do_form = True
+        elif self._dentro_do_form:
+            self.no_formulario.update(str(mapa[k]) for k in ("id", "name") if mapa.get(k))
         if tag != "code":
             return
         if mapa.get("id") == "guia-modelo":
@@ -185,6 +191,8 @@ class _LeitorDoGuia(HTMLParser):
             self.recusados[self._destino] = ""
 
     def handle_endtag(self, tag: str) -> None:
+        if tag == "form":
+            self._dentro_do_form = False
         if tag == "code":
             self._destino = None
 
@@ -208,24 +216,67 @@ def guia() -> _LeitorDoGuia:
     return leitor
 
 
-def test_guia_e_uma_aba_separada_e_comeca_fechada(guia):
-    abas = [a for _tag, a in guia.elementos if a.get("role") == "tab"]
-    assert [a["data-aba"] for a in abas] == ["varredura", "guia"]
-    assert [a["aria-selected"] for a in abas] == ["true", "false"]
-    for aba in abas:
-        painel = guia.por_id(str(aba["aria-controls"]))
-        assert painel["role"] == "tabpanel"
-        assert painel["aria-labelledby"] == aba["id"]
-    assert "hidden" in guia.por_id("painel-guia")
-    assert "hidden" not in guia.por_id("painel-varredura")
+VISTAS = ["autorizacao", "servicos", "revisar", "resultado", "guia"]
+
+
+def test_barra_lateral_lista_as_etapas_e_o_guia(guia):
+    itens = [a for _tag, a in guia.elementos if "data-vista" in a]
+    assert [a["data-vista"] for a in itens] == VISTAS
+    assert [a["id"] for a in itens] == [f"nav-{v}" for v in VISTAS]
+    for nome in VISTAS:
+        guia.por_id(f"vista-{nome}")  # cada item do menu tem a sua vista
+
+
+def test_so_a_primeira_etapa_comeca_visivel(guia):
+    visiveis = [v for v in VISTAS if "hidden" not in guia.por_id(f"vista-{v}")]
+    assert visiveis == ["autorizacao"]
+    assert guia.por_id("nav-autorizacao")["aria-current"] == "step"
+
+
+def test_resultado_comeca_bloqueado_no_menu(guia):
+    """Sem varredura não há resultado: o item nasce desabilitado no próprio HTML."""
+    assert "disabled" in guia.por_id("nav-resultado")
+    for nome in ("autorizacao", "servicos", "revisar", "guia"):
+        assert "disabled" not in guia.por_id(f"nav-{nome}")
+
+
+def test_etapas_do_escopo_ficam_no_mesmo_formulario(guia):
+    """As etapas trocam de tela, mas o escopo é um formulário só, enviado inteiro."""
+    assert {"vista-autorizacao", "vista-servicos", "vista-revisar"} <= guia.no_formulario
+    assert {"by", "date", "reference", "timeout", "workers"} <= guia.no_formulario
+    assert not {"vista-resultado", "vista-guia"} & guia.no_formulario
+    varrer = guia.por_id("varrer")
+    assert (varrer["type"], varrer["form"]) == ("submit", "form-escopo")
+    for botao in ("voltar", "continuar", "nova-varredura"):
+        assert guia.por_id(botao)["type"] == "button"
+
+
+def test_links_internos_apontam_para_vistas_que_existem(guia):
+    destinos = [str(a["data-ir-para"]) for _tag, a in guia.elementos if "data-ir-para" in a]
+    assert destinos and set(destinos) <= set(VISTAS)
+    for _tag, a in guia.elementos:
+        href = a.get("href")
+        if href and href.startswith("#"):
+            alvo = href[1:]
+            assert alvo in VISTAS or guia.por_id(alvo)
 
 
 def test_pagina_com_guia_e_servida_com_os_arquivos_estaticos(client):
     pagina = client.get("/")
     assert pagina.status_code == 200
-    assert 'id="painel-guia"' in pagina.text and 'id="guia-modelo"' in pagina.text
+    assert 'id="vista-guia"' in pagina.text and 'id="guia-modelo"' in pagina.text
+    assert "{{" not in pagina.text
     for arquivo in ("painel.js", "painel.css"):
         assert client.get(f"/static/{arquivo}").status_code == 200
+
+
+def test_vista_vinda_da_url_passa_por_lista_fechada():
+    """O nome depois do # é entrada externa: só vale se estiver na lista de vistas."""
+    js = (ESTATICOS / "painel.js").read_text(encoding="utf-8")
+    assert "Object.hasOwn(VISTAS, alvo)" in js
+    assert "Object.hasOwn(VISTAS, nome)" in js
+    for nome in VISTAS:
+        assert re.search(rf"^  {nome}: \{{ titulo:", js, flags=re.M), nome
 
 
 def test_modelo_do_guia_e_um_escopo_valido(guia):
@@ -290,3 +341,114 @@ def test_pagina_nao_usa_script_nem_estilo_embutido(guia):
             valor = attrs.get(atributo)
             if valor is not None:
                 assert valor.startswith(("#", "/")), f"{atributo} aponta para fora: {valor}"
+
+
+# ---------- identidade visual ----------
+
+MARCA = {"marinho": "#0B1530", "ciano": "#1590B3", "ciano-vivo": "#3CC3DE", "fundo": "#F5F7FA"}
+PALETA_ANTIGA = ("#0F766E", "#0B5F58", "#5EEAD4", "#2DD4BF", "#111418")
+CONTRASTE_MINIMO = 4.5  # WCAG 2.1 AA para texto normal
+
+# (texto, fundo): pares que aparecem de fato na tela.
+PARES_DE_TEXTO = [
+    ("tinta", "fundo"),
+    ("tinta", "superficie"),
+    ("texto", "fundo"),
+    ("texto", "superficie"),
+    ("suave", "fundo"),
+    ("suave", "superficie"),
+    ("ciano-forte", "fundo"),
+    ("ciano-forte", "superficie"),
+    ("ciano-forte", "ciano-claro"),
+    ("principal-texto", "principal"),
+    ("laranja", "superficie"),
+    ("laranja", "laranja-claro"),
+    ("ambar", "ambar-claro"),
+    ("lacuna", "lacuna-claro"),
+    ("superficie", "laranja"),
+    ("lateral-texto", "marinho"),
+    ("lateral-suave", "marinho"),
+    ("ciano-vivo", "marinho"),
+    ("codigo-texto", "codigo-fundo"),
+]
+
+
+def _tokens(bloco: str) -> dict[str, str]:
+    achados = re.findall(r"--([a-z0-9-]+):\s*(#[0-9A-Fa-f]{6})\b", bloco)
+    return {nome: cor.upper() for nome, cor in achados}
+
+
+@pytest.fixture(scope="module")
+def paletas() -> dict[str, dict[str, str]]:
+    css = (ESTATICOS / "painel.css").read_text(encoding="utf-8")
+    corte = css.index("@media (prefers-color-scheme: dark)")
+    claro = _tokens(css[:corte])
+    escuro = {**claro, **_tokens(css[corte : css.index("*, *::before")])}
+    return {"claro": claro, "escuro": escuro}
+
+
+def _luminancia(cor: str) -> float:
+    canais = [int(cor[i : i + 2], 16) / 255 for i in (1, 3, 5)]
+    r, g, b = (c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in canais)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _contraste(a: str, b: str) -> float:
+    claro, escuro = sorted((_luminancia(a), _luminancia(b)), reverse=True)
+    return (claro + 0.05) / (escuro + 0.05)
+
+
+def test_contraste_bate_com_valores_conhecidos():
+    assert _contraste("#000000", "#FFFFFF") == pytest.approx(21.0)
+    assert _contraste("#FFFFFF", "#FFFFFF") == pytest.approx(1.0)
+    assert _contraste("#1590B3", "#FFFFFF") < CONTRASTE_MINIMO  # por isso existe --ciano-forte
+
+
+def test_painel_usa_a_paleta_da_marca(paletas):
+    for nome, cor in MARCA.items():
+        assert paletas["claro"][nome] == cor
+    assert paletas["claro"]["tinta"] == MARCA["marinho"]
+    assert paletas["escuro"]["ciano"] == MARCA["ciano-vivo"]
+    assert paletas["escuro"]["fundo"] == MARCA["marinho"]
+
+
+def test_paleta_antiga_saiu_do_painel():
+    for arquivo in ("painel.css", "icone.svg", "index.html"):
+        texto = (ESTATICOS / arquivo).read_text(encoding="utf-8").upper()
+        for cor in PALETA_ANTIGA:
+            assert cor not in texto, f"{cor} ainda em {arquivo}"
+
+
+def test_toda_variavel_de_cor_usada_esta_definida():
+    css = (ESTATICOS / "painel.css").read_text(encoding="utf-8")
+    definidas = set(re.findall(r"(--[a-z0-9-]+)\s*:", css))
+    usadas = set(re.findall(r"var\((--[a-z0-9-]+)", css))
+    assert usadas <= definidas, sorted(usadas - definidas)
+
+
+@pytest.mark.parametrize("modo", ["claro", "escuro"])
+@pytest.mark.parametrize(("texto", "fundo"), PARES_DE_TEXTO)
+def test_texto_tem_contraste_minimo(paletas, modo, texto, fundo):
+    cores = paletas[modo]
+    razao = _contraste(cores[texto], cores[fundo])
+    assert razao >= CONTRASTE_MINIMO, f"{texto} sobre {fundo} ({modo}): {razao:.2f}"
+
+
+def test_icone_e_um_svg_estatico_da_marca():
+    """O ícone vem de um pacote externo: só entra se for desenho puro, sem nada ativo."""
+    svg = (ESTATICOS / "icone.svg").read_text(encoding="utf-8")
+    assert len(svg) < 50_000
+    assert MARCA["marinho"] in svg and MARCA["ciano-vivo"] in svg
+    leitor = _LeitorDoGuia()
+    leitor.feed(svg)
+    assert {tag for tag, _attrs in leitor.elementos} <= {"svg", "rect", "g", "path"}
+    for _tag, attrs in leitor.elementos:
+        assert not [a for a in attrs if a.startswith("on") or a in ("href", "xlink:href", "style")]
+    assert "<!ENTITY" not in svg.upper() and "<!DOCTYPE" not in svg.upper()
+
+
+def test_icone_e_servido_como_svg(client):
+    resp = client.get("/static/icone.svg")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("image/svg+xml")
+    assert resp.headers["x-content-type-options"] == "nosniff"

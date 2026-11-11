@@ -2,6 +2,10 @@
 // Regra de segurança: nenhum dado vindo da varredura entra na página como HTML.
 // Nomes de certificado vêm do servidor varrido, que pode ser hostil, então
 // tudo é montado com textContent (função el abaixo). Não use innerHTML aqui.
+//
+// A página é uma casca fixa (barra lateral + área de trabalho). Cada etapa é
+// uma "vista"; só uma aparece por vez. Quem decide se o escopo vale é sempre
+// o servidor: a navegação por etapas é só interface.
 "use strict";
 
 const TOKEN = document.querySelector('meta[name="pc-token"]').content;
@@ -28,7 +32,20 @@ const SITUACOES = {
 const ORDEM = ["hndl_vulnerable", "review", "unreachable", "pqc"];
 const SEVERIDADES = ["critical", "high", "medium", "low", "info"];
 const GRAVIDADE = { critical: "Urgente", high: "Importante", medium: "Atenção", low: "Planejar", info: "Nota" };
+const DONOS = { self: "Da empresa", third_party: "De fornecedor" };
 
+// Lista fechada de vistas: o nome que vem da URL só vale se estiver aqui.
+const VISTAS = {
+  autorizacao: { titulo: "Quem autorizou esta varredura", etapa: 1 },
+  servicos: { titulo: "Quais serviços verificar", etapa: 2 },
+  revisar: { titulo: "Revisar e varrer", etapa: 3 },
+  resultado: { titulo: "Resultado da varredura", etapa: 4 },
+  guia: { titulo: "Como montar o arquivo de escopo", etapa: null },
+};
+const ETAPAS = ["autorizacao", "servicos", "revisar", "resultado"];
+
+let vistaAtual = "autorizacao";
+let escopoConferido = null; // escopo já aceito pelo servidor; zera a cada edição
 let ultimoResultado = null;
 let ocupado = false;
 
@@ -40,7 +57,7 @@ function el(tag, props = {}, ...filhos) {
     if (v === null || v === undefined || v === false) continue;
     if (k === "class") n.className = v;
     else if (k === "text") n.textContent = v;
-    else if (k.startsWith("data-") || k.startsWith("aria-") || k === "role" || k === "title") n.setAttribute(k, v);
+    else if (k.startsWith("data-") || k.startsWith("aria-") || k === "role" || k === "title" || k === "scope") n.setAttribute(k, v);
     else n[k] = v;
   }
   for (const f of filhos.flat()) {
@@ -97,6 +114,10 @@ function mostrarMensagem(texto, tipo = "erro") {
   m.hidden = !texto;
 }
 
+function definirEstado(texto) {
+  $("#estado-texto").textContent = texto;
+}
+
 function baixar(nome, texto, tipo) {
   const url = URL.createObjectURL(new Blob([texto], { type: tipo }));
   const a = el("a", { href: url, download: nome });
@@ -110,7 +131,147 @@ function plural(n, um, varios) {
   return `${n} ${n === 1 ? um : varios}`;
 }
 
+function dataBrasileira(iso) {
+  return String(iso).split("-").reverse().join("/");
+}
+
+function nomeDoAlvo(t) {
+  return t.label || `${t.host}:${t.port}`;
+}
+
+// ---------- navegação entre vistas ----------
+
+function autorizacaoPreenchida() {
+  const f = $("#form-escopo");
+  return Boolean(f.by.value.trim() && f.date.value);
+}
+
+function etapaFeita(nome) {
+  if (nome === "autorizacao") return autorizacaoPreenchida();
+  if (nome === "servicos") return lerEscopo().targets.some((a) => a.host.trim());
+  if (nome === "revisar") return Boolean(ultimoResultado);
+  return false;
+}
+
+function vistaDoEndereco() {
+  const alvo = location.hash.slice(1);
+  if (Object.hasOwn(VISTAS, alvo)) return { vista: alvo, secao: null };
+  // Âncoras do guia (#guia-campos etc.) abrem o guia naquela seção.
+  if (/^guia-[a-z]+$/.test(alvo) && document.getElementById(alvo)) return { vista: "guia", secao: alvo };
+  return { vista: "autorizacao", secao: null };
+}
+
+// Uma etapa só abre quando a anterior já produziu o que ela mostra.
+function vistaPermitida(nome) {
+  if (!Object.hasOwn(VISTAS, nome)) return "autorizacao";
+  if (nome === "resultado" && !ultimoResultado) return vistaPermitida("revisar");
+  if (nome === "revisar" && !escopoConferido) return autorizacaoPreenchida() ? "servicos" : "autorizacao";
+  return nome;
+}
+
+function atualizarMenu() {
+  for (const nome of Object.keys(VISTAS)) {
+    const botao = document.getElementById(`nav-${nome}`);
+    if (nome === vistaAtual) botao.setAttribute("aria-current", VISTAS[nome].etapa ? "step" : "page");
+    else botao.removeAttribute("aria-current");
+    botao.dataset.feita = String(etapaFeita(nome));
+  }
+  $("#nav-resultado").disabled = !ultimoResultado;
+}
+
+function atualizarAcoes() {
+  const n = lerEscopo().targets.length;
+  $("#acoes").hidden = vistaAtual === "guia";
+  $("#voltar").hidden = !(vistaAtual === "servicos" || vistaAtual === "revisar");
+  const continuar = $("#continuar");
+  continuar.hidden = !(vistaAtual === "autorizacao" || vistaAtual === "servicos");
+  continuar.textContent = vistaAtual === "servicos" ? "Revisar" : "Continuar";
+  const varrerBotao = $("#varrer");
+  varrerBotao.hidden = vistaAtual !== "revisar";
+  varrerBotao.textContent = ocupado ? "Varrendo…" : n ? `Varrer ${plural(n, "serviço", "serviços")}` : "Varrer";
+  varrerBotao.disabled = ocupado;
+  const nova = $("#nova-varredura");
+  nova.hidden = vistaAtual !== "resultado";
+  nova.disabled = ocupado;
+}
+
+function mostrarVista(nome, { secao = null, focar = false, manterMensagem = false } = {}) {
+  const vista = vistaPermitida(nome);
+  vistaAtual = vista;
+  for (const v of Object.keys(VISTAS)) document.getElementById(`vista-${v}`).hidden = v !== vista;
+  const info = VISTAS[vista];
+  $("#barra-titulo").textContent = info.titulo;
+  $("#barra-etapa").textContent = info.etapa ? `Etapa ${info.etapa} de ${ETAPAS.length}` : "Ajuda";
+  document.title = `${info.titulo} · Post-Crypt`;
+  if (!manterMensagem) mostrarMensagem("");
+  if (vista === "revisar") renderizarRevisao(escopoConferido);
+  atualizarMenu();
+  atualizarAcoes();
+  const destino = vista === "guia" && secao ? document.getElementById(secao) : null;
+  if (destino) destino.scrollIntoView();
+  else {
+    $("#conteudo").scrollTop = 0;
+    window.scrollTo(0, 0);
+  }
+  if (focar) $("#barra-titulo").focus({ preventScroll: true });
+  return vista;
+}
+
+function irPara(nome, opcoes = {}) {
+  const vista = mostrarVista(nome, { focar: true, ...opcoes });
+  const fragmento = vista === "autorizacao" ? "" : vista;
+  if (location.hash.slice(1) !== fragmento) {
+    history.pushState(null, "", fragmento ? `#${fragmento}` : location.pathname);
+  }
+  return vista;
+}
+
+// O servidor confere o escopo inteiro antes de a revisão aparecer.
+async function conferirEscopo() {
+  try {
+    escopoConferido = await api("/api/escopo/validar", lerEscopo());
+  } catch (e) {
+    escopoConferido = null;
+    mostrarMensagem(e.message);
+    marcarErro(e.original || "escopo");
+    return false;
+  }
+  marcarErro("");
+  irPara("revisar");
+  return true;
+}
+
+async function avancar() {
+  if (vistaAtual === "autorizacao") {
+    if (!autorizacaoPreenchida()) {
+      mostrarMensagem("Preencha quem autorizou a varredura e a data da autorização.");
+      marcarErro("authorization");
+      return;
+    }
+    marcarErro("");
+    irPara("servicos");
+  } else if (vistaAtual === "servicos") {
+    await conferirEscopo();
+  }
+}
+
+function voltar() {
+  if (vistaAtual === "revisar") irPara("servicos");
+  else if (vistaAtual === "servicos") irPara("autorizacao");
+}
+
+function navegarPeloMenu(nome) {
+  if (nome === "revisar" && !escopoConferido) conferirEscopo();
+  else irPara(nome);
+}
+
 // ---------- formulário ----------
+
+function escopoMudou() {
+  escopoConferido = null;
+  atualizarMenu();
+  atualizarAcoes();
+}
 
 function adicionarAlvo(valores = {}) {
   const linha = $("#tpl-alvo").content.firstElementChild.cloneNode(true);
@@ -121,14 +282,11 @@ function adicionarAlvo(valores = {}) {
   linha.querySelector(".remover").addEventListener("click", () => {
     linha.remove();
     if (!$("#lista-alvos").children.length) adicionarAlvo();
-    atualizarBotao();
+    escopoMudou();
   });
-  linha.addEventListener("input", () => {
-    linha.removeAttribute("data-erro");
-    atualizarBotao();
-  });
+  linha.addEventListener("input", () => linha.removeAttribute("data-erro"));
   $("#lista-alvos").append(linha);
-  atualizarBotao();
+  escopoMudou();
   return linha;
 }
 
@@ -158,39 +316,99 @@ function preencherEscopo(escopo) {
     adicionarAlvo({ ...t, sni: t.sni && t.sni !== t.host ? t.sni : "" });
   }
   if (!escopo.targets.length) adicionarAlvo();
+  escopoMudou();
 }
 
+// Leva a pessoa até a etapa onde está o erro e destaca o campo.
 function marcarErro(mensagemOriginal) {
   document.querySelectorAll("#lista-alvos .alvo").forEach((l) => l.removeAttribute("data-erro"));
-  for (const nome of ["by", "date"]) $("#form-escopo")[nome].removeAttribute("aria-invalid");
-  const m = /targets\[(\d+)\]/.exec(mensagemOriginal || "");
-  if (m) {
-    const preenchidas = [...document.querySelectorAll("#lista-alvos .alvo")].filter(
-      (l) => l.querySelector('[data-campo="host"]').value.trim() || l.querySelector('[data-campo="label"]').value.trim(),
-    );
-    const linha = preenchidas[Number(m[1])];
-    if (linha) {
-      linha.dataset.erro = "true";
-      linha.querySelector('[data-campo="host"]').focus();
-    }
-  } else if (/authorization/.test(mensagemOriginal || "")) {
-    const f = $("#form-escopo");
+  const f = $("#form-escopo");
+  for (const nome of ["by", "date"]) f[nome].removeAttribute("aria-invalid");
+  if (!mensagemOriginal) return;
+  if (/authorization/.test(mensagemOriginal)) {
+    irPara("autorizacao", { manterMensagem: true, focar: false });
     for (const nome of ["by", "date"]) if (!f[nome].value.trim()) f[nome].setAttribute("aria-invalid", "true");
-    f.by.focus();
+    (f.by.value.trim() ? f.date : f.by).focus();
+    return;
+  }
+  irPara("servicos", { manterMensagem: true, focar: false });
+  const m = /targets\[(\d+)\]/.exec(mensagemOriginal);
+  if (!m) return;
+  const preenchidas = [...document.querySelectorAll("#lista-alvos .alvo")].filter(
+    (l) => l.querySelector('[data-campo="host"]').value.trim() || l.querySelector('[data-campo="label"]').value.trim(),
+  );
+  const linha = preenchidas[Number(m[1])];
+  if (linha) {
+    linha.dataset.erro = "true";
+    linha.querySelector('[data-campo="host"]').focus();
   }
 }
 
-function atualizarBotao() {
-  const n = lerEscopo().targets.length;
-  const botao = $("#varrer");
-  botao.textContent = ocupado ? "Varrendo…" : n ? `Varrer ${plural(n, "serviço", "serviços")}` : "Varrer";
-  botao.disabled = ocupado;
+// ---------- revisão ----------
+
+function renderizarRevisao(escopo) {
+  if (!escopo) return;
+  const a = escopo.authorization;
+  $("#revisao-autorizacao").replaceChildren(
+    el("dt", { text: "Autorizado por" }),
+    el("dd", { text: a.by }),
+    el("dt", { text: "Data" }),
+    el("dd", { text: dataBrasileira(a.date) }),
+    el("dt", { text: "Referência" }),
+    el("dd", { text: a.reference || "—" }),
+  );
+  $("#revisao-contagem").textContent = `(${escopo.targets.length})`;
+  const colunas = ["Nome", "Endereço", "Porta", "De quem é", "Nome no certificado"];
+  $("#revisao-servicos").replaceChildren(
+    el(
+      "table",
+      {},
+      el("thead", {}, el("tr", {}, colunas.map((c) => el("th", { scope: "col", text: c })))),
+      el(
+        "tbody",
+        {},
+        escopo.targets.map((t) =>
+          el(
+            "tr",
+            {},
+            el("td", { text: t.label || "—" }),
+            el("td", { text: t.host }),
+            el("td", { text: String(t.port) }),
+            el("td", { text: DONOS[t.owner] || t.owner }),
+            el("td", { text: t.sni && t.sni !== t.host ? t.sni : "—" }),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 // ---------- varredura ----------
 
-async function varrer(evento) {
-  evento.preventDefault();
+function renderizarAndamento(parciais) {
+  $("#andamento").replaceChildren(
+    ...parciais.map((r) => {
+      const st = r.assessment.status;
+      const sit = SITUACOES[st];
+      return el(
+        "li",
+        { class: `s-${st}` },
+        el("span", { class: "andamento-nome", text: nomeDoAlvo(r.target) }),
+        el("span", { class: "selo", text: sit ? sit.nome : st }),
+      );
+    }),
+  );
+}
+
+function progresso(feitos, total, ultimo) {
+  $("#progresso-barra").style.width = `${total ? (100 * feitos) / total : 0}%`;
+  const texto =
+    `${feitos} de ${plural(total, "serviço verificado", "serviços verificados")}` + (ultimo ? `. Último: ${ultimo}` : "");
+  $("#progresso-texto").textContent = texto;
+  definirEstado(`Varrendo: ${texto}.`);
+}
+
+async function varrer() {
   if (ocupado) return;
   mostrarMensagem("");
   const f = $("#form-escopo");
@@ -204,40 +422,41 @@ async function varrer(evento) {
     job = await api("/api/varreduras", pedido);
   } catch (e) {
     mostrarMensagem(e.message);
-    marcarErro(e.original);
+    if (/authorization|targets|alvo/.test(e.original || "")) marcarErro(e.original);
     return;
   }
-  marcarErro("");
   ocupado = true;
-  atualizarBotao();
+  atualizarAcoes();
+  renderizarAndamento([]);
   $("#progresso").hidden = false;
   progresso(0, job.total, "");
 
+  let concluida = false;
   try {
     for (;;) {
       await new Promise((r) => setTimeout(r, 400));
       const estado = await api(`/api/varreduras/${job.id}`);
       const ultimo = estado.parciais.at(-1);
-      progresso(estado.feitos, estado.total, ultimo ? ultimo.target.label || `${ultimo.target.host}:${ultimo.target.port}` : "");
+      renderizarAndamento(estado.parciais);
+      progresso(estado.feitos, estado.total, ultimo ? nomeDoAlvo(ultimo.target) : "");
       if (estado.estado === "erro") throw new Error(estado.erro);
       if (estado.estado === "concluida") {
-        mostrarResultado(estado.resultado);
+        renderizarResultado(estado.resultado);
+        concluida = true;
         break;
       }
     }
   } catch (e) {
     mostrarMensagem(e.message);
+    definirEstado("A varredura parou antes de terminar.");
   } finally {
     ocupado = false;
     $("#progresso").hidden = true;
-    atualizarBotao();
+    atualizarMenu();
+    atualizarAcoes();
   }
-}
-
-function progresso(feitos, total, ultimo) {
-  $("#progresso-barra").style.width = `${total ? (100 * feitos) / total : 0}%`;
-  $("#progresso-texto").textContent =
-    `${feitos} de ${plural(total, "serviço verificado", "serviços verificados")}` + (ultimo ? `. Último: ${ultimo}` : "");
+  // Só troca de tela se a pessoa ainda estiver esperando na revisão.
+  if (concluida && vistaAtual === "revisar") irPara("resultado");
 }
 
 // ---------- resultado ----------
@@ -309,7 +528,6 @@ function cartaoServico(r) {
   const st = r.assessment.status;
   const sit = SITUACOES[st];
   const t = r.target;
-  const nome = t.label || `${t.host}:${t.port}`;
 
   const resumo = el(
     "summary",
@@ -317,7 +535,7 @@ function cartaoServico(r) {
     el(
       "div",
       { class: "nome" },
-      el("strong", { text: nome }),
+      el("strong", { text: nomeDoAlvo(t) }),
       el("small", { text: `${t.host}:${t.port}` }),
       t.owner === "third_party" ? el("span", { class: "dono", text: "De fornecedor" }) : null,
     ),
@@ -372,7 +590,7 @@ function cartaoServico(r) {
   );
 }
 
-function mostrarResultado(resultado) {
+function renderizarResultado(resultado) {
   ultimoResultado = resultado;
   const total = resultado.results.length;
   const contagem = resultado.summary;
@@ -416,14 +634,10 @@ function mostrarResultado(resultado) {
   const quando = new Date(resultado.finished_at).toLocaleString("pt-BR");
   const auth = resultado.authorization;
   $("#carimbo").textContent =
-    `Varredura ${resultado.scan_id.slice(0, 8)}, concluída em ${quando}. Autorizada por ${auth.by} em ${auth.date.split("-").reverse().join("/")}` +
+    `Varredura ${resultado.scan_id.slice(0, 8)}, concluída em ${quando}. Autorizada por ${auth.by} em ${dataBrasileira(auth.date)}` +
     (auth.reference ? ` (${auth.reference})` : "") +
     `. Regras de ${resultado.rules_version}.`;
-
-  const secao = $("#resultado");
-  secao.hidden = false;
-  secao.focus({ preventScroll: true });
-  secao.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  definirEstado(`Varredura ${resultado.scan_id.slice(0, 8)} concluída em ${quando}: ${plural(total, "serviço", "serviços")}.`);
 }
 
 // ---------- arquivo e laboratório ----------
@@ -435,7 +649,7 @@ async function abrirArquivo(evento) {
   try {
     const escopo = await api("/api/escopo/importar", { texto: await arquivo.text() });
     preencherEscopo(escopo);
-    mostrarMensagem(`Escopo carregado de ${arquivo.name}: ${plural(escopo.targets.length, "serviço", "serviços")}.`, "info");
+    mostrarMensagem(`Escopo carregado de ${arquivo.name}: ${plural(escopo.targets.length, "serviço", "serviços")}. Clique em Revisar para conferir.`, "info");
   } catch (e) {
     mostrarMensagem(`Não consegui abrir ${arquivo.name}. ${e.message}`);
   }
@@ -448,7 +662,7 @@ async function salvarEscopo() {
     mostrarMensagem("");
   } catch (e) {
     mostrarMensagem(`Antes de salvar: ${e.message}`);
-    marcarErro(e.original);
+    marcarErro(e.original || "escopo");
   }
 }
 
@@ -460,7 +674,7 @@ async function usarLaboratorio() {
     const { escopo, aviso } = await api("/api/laboratorio/ligar", {});
     preencherEscopo(escopo);
     mostrarMensagem(
-      "Laboratório de teste ligado neste computador: 6 serviços de exemplo, um deles desligado de propósito. Agora é só clicar em Varrer." +
+      "Laboratório de teste ligado neste computador: 6 serviços de exemplo, um deles desligado de propósito. Clique em Revisar e depois em Varrer." +
         (aviso ? ` Aviso: ${aviso}` : ""),
       "info",
     );
@@ -472,53 +686,7 @@ async function usarLaboratorio() {
   }
 }
 
-// ---------- abas e guia ----------
-
-const ABAS = ["varredura", "guia"];
-
-function abaDoEndereco() {
-  const alvo = location.hash.slice(1);
-  if (ABAS.includes(alvo)) return { aba: alvo, secao: null };
-  // Âncoras do guia (#guia-campos etc.) abrem o guia naquela seção.
-  if (/^guia-[a-z]+$/.test(alvo) && document.getElementById(alvo)) return { aba: "guia", secao: alvo };
-  return { aba: "varredura", secao: null };
-}
-
-function mostrarAba(nome, { focar = false, secao = null } = {}) {
-  const escolhida = ABAS.includes(nome) ? nome : "varredura";
-  for (const aba of ABAS) {
-    const ativa = aba === escolhida;
-    const botao = document.getElementById(`aba-${aba}`);
-    botao.setAttribute("aria-selected", String(ativa));
-    botao.tabIndex = ativa ? 0 : -1;
-    document.getElementById(`painel-${aba}`).hidden = !ativa;
-  }
-  const destino = secao ? document.getElementById(secao) : null;
-  if (destino) destino.scrollIntoView();
-  else if (focar) {
-    window.scrollTo(0, 0);
-    document.getElementById(`painel-${escolhida}`).focus({ preventScroll: true });
-  }
-}
-
-function irParaAba(nome, opcoes) {
-  history.replaceState(null, "", nome === "varredura" ? location.pathname : `#${nome}`);
-  mostrarAba(nome, opcoes);
-}
-
-function teclaNasAbas(evento) {
-  const atual = ABAS.indexOf(evento.target.dataset.aba);
-  if (atual < 0) return;
-  let proxima = null;
-  if (evento.key === "ArrowRight") proxima = (atual + 1) % ABAS.length;
-  else if (evento.key === "ArrowLeft") proxima = (atual - 1 + ABAS.length) % ABAS.length;
-  else if (evento.key === "Home") proxima = 0;
-  else if (evento.key === "End") proxima = ABAS.length - 1;
-  if (proxima === null) return;
-  evento.preventDefault();
-  irParaAba(ABAS[proxima]);
-  document.getElementById(`aba-${ABAS[proxima]}`).focus();
-}
+// ---------- guia ----------
 
 function avisarNoGuia(texto) {
   const aviso = $("#guia-aviso");
@@ -541,38 +709,39 @@ function baixarModelo() {
   avisarNoGuia("Modelo baixado como escopo-modelo.yaml. Troque os exemplos pelos seus dados antes de usar.");
 }
 
-function iniciarAbas() {
-  for (const aba of ABAS) {
-    const botao = document.getElementById(`aba-${aba}`);
-    botao.addEventListener("click", () => irParaAba(aba));
-    botao.addEventListener("keydown", teclaNasAbas);
+// ---------- início ----------
+
+function ligarEventos() {
+  for (const nome of Object.keys(VISTAS)) {
+    document.getElementById(`nav-${nome}`).addEventListener("click", () => navegarPeloMenu(nome));
   }
   for (const link of document.querySelectorAll("[data-ir-para]")) {
     link.addEventListener("click", (evento) => {
       evento.preventDefault();
-      irParaAba(link.dataset.irPara, { focar: true });
+      irPara(link.dataset.irPara);
     });
   }
   window.addEventListener("hashchange", () => {
-    const { aba, secao } = abaDoEndereco();
-    mostrarAba(aba, { secao });
+    const { vista, secao } = vistaDoEndereco();
+    mostrarVista(vista, { secao });
   });
-  $("#copiar-modelo").addEventListener("click", copiarModelo);
-  $("#baixar-modelo").addEventListener("click", baixarModelo);
-  const { aba, secao } = abaDoEndereco();
-  mostrarAba(aba, { secao });
-}
 
-// ---------- início ----------
-
-async function iniciar() {
-  iniciarAbas();
-  adicionarAlvo();
+  const form = $("#form-escopo");
+  form.addEventListener("submit", (evento) => {
+    evento.preventDefault();
+    if (vistaAtual === "revisar") varrer();
+    else avancar();
+  });
+  for (const id of ["#vista-autorizacao", "#vista-servicos"]) {
+    $(id).addEventListener("input", (evento) => {
+      if (evento.target.name === "by" || evento.target.name === "date") evento.target.removeAttribute("aria-invalid");
+      escopoMudou();
+    });
+  }
+  $("#continuar").addEventListener("click", avancar);
+  $("#voltar").addEventListener("click", voltar);
+  $("#nova-varredura").addEventListener("click", () => irPara("servicos"));
   $("#adicionar-alvo").addEventListener("click", () => adicionarAlvo().querySelector("input").focus());
-  $("#form-escopo").addEventListener("submit", varrer);
-  $("#form-escopo").addEventListener("input", (e) => {
-    if (e.target.name === "by" || e.target.name === "date") e.target.removeAttribute("aria-invalid");
-  });
   $("#arquivo-escopo").addEventListener("change", abrirArquivo);
   $("#salvar-escopo").addEventListener("click", salvarEscopo);
   $("#usar-lab").addEventListener("click", usarLaboratorio);
@@ -581,11 +750,22 @@ async function iniciar() {
     const dia = ultimoResultado.finished_at.slice(0, 10);
     baixar(`resultado-${dia}.json`, JSON.stringify(ultimoResultado, null, 2) + "\n", "application/json");
   });
+  $("#copiar-modelo").addEventListener("click", copiarModelo);
+  $("#baixar-modelo").addEventListener("click", baixarModelo);
+}
+
+async function iniciar() {
+  adicionarAlvo();
+  ligarEventos();
+  const { vista, secao } = vistaDoEndereco();
+  mostrarVista(vista, { secao });
 
   try {
     const info = await api("/api/info");
     $("#form-escopo").date.value = info.hoje;
     $("#usar-lab").hidden = !info.laboratorio.disponivel;
+    $("#estado-info").textContent = `Regras de ${info.regras} · versão ${info.versao}`;
+    atualizarMenu();
   } catch (e) {
     mostrarMensagem(e.message);
   }
