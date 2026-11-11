@@ -434,17 +434,77 @@ def test_texto_tem_contraste_minimo(paletas, modo, texto, fundo):
     assert razao >= CONTRASTE_MINIMO, f"{texto} sobre {fundo} ({modo}): {razao:.2f}"
 
 
+DESENHO = {"svg", "rect", "g", "path"}
+# Credencial de conteúdo (C2PA): bloco de metadados que não é desenhado nem executado.
+PROVENIENCIA = {"metadata", "c2pa:manifest"}
+MANIFESTO = re.compile(r"<c2pa:manifest>[A-Za-z0-9+/=\s]+</c2pa:manifest>")
+
+
+def problemas_do_svg(svg: str) -> list[str]:
+    """Lista o que impede um SVG de ser aceito como desenho puro (vazia = aceito)."""
+    problemas: list[str] = []
+    if len(svg) >= 50_000:
+        problemas.append("arquivo grande demais")
+    if "<!ENTITY" in svg.upper() or "<!DOCTYPE" in svg.upper():
+        problemas.append("declaração de entidade ou DOCTYPE")
+    leitor = _LeitorDoGuia()
+    leitor.feed(svg)
+    for tag, attrs in leitor.elementos:
+        if tag not in DESENHO | PROVENIENCIA:
+            problemas.append(f"elemento <{tag}>")
+        for nome in attrs:
+            if nome.startswith("on") or nome in ("href", "xlink:href", "style", "src"):
+                problemas.append(f"atributo {nome} em <{tag}>")
+    blocos = re.findall(r"<metadata\b[^>]*>(.*?)</metadata>", svg, flags=re.S)
+    if len(blocos) > 1 or svg.count("<metadata") != len(blocos):
+        problemas.append("metadados repetidos ou malformados")
+    for bloco in blocos:
+        if not MANIFESTO.fullmatch(bloco.strip()):
+            problemas.append("metadados com algo além do manifesto em base64")
+    return problemas
+
+
 def test_icone_e_um_svg_estatico_da_marca():
     """O ícone vem de um pacote externo: só entra se for desenho puro, sem nada ativo."""
     svg = (ESTATICOS / "icone.svg").read_text(encoding="utf-8")
-    assert len(svg) < 50_000
     assert MARCA["marinho"] in svg and MARCA["ciano-vivo"] in svg
-    leitor = _LeitorDoGuia()
-    leitor.feed(svg)
-    assert {tag for tag, _attrs in leitor.elementos} <= {"svg", "rect", "g", "path"}
-    for _tag, attrs in leitor.elementos:
-        assert not [a for a in attrs if a.startswith("on") or a in ("href", "xlink:href", "style")]
-    assert "<!ENTITY" not in svg.upper() and "<!DOCTYPE" not in svg.upper()
+    assert problemas_do_svg(svg) == []
+
+
+def test_svg_de_desenho_com_credencial_de_conteudo_e_aceito():
+    puro = '<svg xmlns="http://www.w3.org/2000/svg"><g><path d="M0,0 L1,1"/></g></svg>'
+    assert problemas_do_svg(puro) == []
+    credencial = "<metadata><c2pa:manifest>AAAWgmp1bWI=\n</c2pa:manifest></metadata>"
+    assert problemas_do_svg(puro.replace("</svg>", credencial + "</svg>")) == []
+
+
+@pytest.mark.parametrize(
+    "trecho",
+    [
+        "<script>alert(1)</script>",
+        '<g onload="alert(1)"/>',
+        '<a href="https://atacante.example"><path d="M0,0"/></a>',
+        '<image href="https://atacante.example/x.png"/>',
+        '<use xlink:href="https://atacante.example/x.svg#a"/>',
+        "<foreignObject><iframe/></foreignObject>",
+        '<path style="background:url(https://atacante.example)" d="M0,0"/>',
+        "<metadata><script>alert(1)</script></metadata>",
+        "<metadata><c2pa:manifest>AAAA</c2pa:manifest><x>fora do manifesto</x></metadata>",
+        "<metadata><c2pa:manifest>javascript:alert(1)</c2pa:manifest></metadata>",
+        "<metadata><c2pa:manifest>AAAA</c2pa:manifest></metadata><metadata>AAAA</metadata>",
+        "<metadata><c2pa:manifest>AAAA</c2pa:manifest>",
+    ],
+)
+def test_svg_com_conteudo_ativo_e_recusado(trecho):
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg">{trecho}</svg>'
+    assert problemas_do_svg(svg) != []
+
+
+def test_svg_com_entidade_ou_grande_demais_e_recusado():
+    bomba = '<!DOCTYPE svg [<!ENTITY a "aaaa">]><svg xmlns="http://www.w3.org/2000/svg"/>'
+    assert problemas_do_svg(bomba) != []
+    enorme = '<svg xmlns="http://www.w3.org/2000/svg">' + '<path d="M0,0"/>' * 4000 + "</svg>"
+    assert problemas_do_svg(enorme) != []
 
 
 def test_icone_e_servido_como_svg(client):
