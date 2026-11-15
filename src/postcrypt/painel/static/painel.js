@@ -48,6 +48,7 @@ let vistaAtual = "autorizacao";
 let escopoConferido = null; // escopo já aceito pelo servidor; zera a cada edição
 let ultimoResultado = null;
 let ocupado = false;
+const cartoesPorServico = new Map(); // "endereço:porta" -> cartão no resultado
 
 // ---------- utilidades ----------
 
@@ -137,6 +138,11 @@ function dataBrasileira(iso) {
 
 function nomeDoAlvo(t) {
   return t.label || `${t.host}:${t.port}`;
+}
+
+// Mesma chave que o servidor usa em network.findings[].assets.
+function chaveDoAlvo(t) {
+  return `${t.host}:${t.port}`;
 }
 
 // ---------- navegação entre vistas ----------
@@ -577,16 +583,106 @@ function cartaoServico(r) {
   ];
   if (r.error) linhas.push(["Erro", r.error]);
 
-  return el(
+  const naRede = achadosDeRede(ultimoResultado).filter((f) => (f.assets || []).includes(chaveDoAlvo(t)));
+  const blocoRede = naRede.length
+    ? [
+        el("h4", { class: "com-espaco", text: "Na rede" }),
+        el(
+          "ul",
+          { class: "achados" },
+          naRede.map((f) =>
+            el(
+              "li",
+              { class: "achado" },
+              el("span", { class: "grav", "data-g": f.severity, text: GRAVIDADE[f.severity] || f.severity }),
+              el("strong", { text: f.title }),
+              el("p", { text: `Junto com ${plural(f.assets.length - 1, "outro serviço", "outros serviços")}. Veja em A rede como um todo.` }),
+            ),
+          ),
+        ),
+      ]
+    : [];
+
+  const cartao = el(
     "details",
     { class: `servico s-${st}` },
     resumo,
     el(
       "div",
       { class: "detalhes" },
-      el("div", {}, el("h4", { text: "O que isso significa" }), el("p", { class: "explicacao", text: sit.explica }), el("h4", { text: "O que fazer" }), achados),
+      el("div", {}, el("h4", { text: "O que isso significa" }), el("p", { class: "explicacao", text: sit.explica }), el("h4", { text: "O que fazer" }), achados, blocoRede),
       el("div", {}, el("h4", { text: "Dados técnicos" }), el("dl", { class: "tecnico" }, linhas.flatMap(([k, v]) => [el("dt", { text: k }), el("dd", { text: v })]))),
     ),
+  );
+  cartoesPorServico.set(chaveDoAlvo(t), cartao);
+  return cartao;
+}
+
+// ---------- resultado: a rede como um todo ----------
+
+function achadosDeRede(resultado) {
+  const rede = resultado && resultado.network;
+  return rede && Array.isArray(rede.findings) ? rede.findings : [];
+}
+
+function abrirServico(chave) {
+  const cartao = cartoesPorServico.get(chave);
+  if (!cartao) return;
+  cartao.open = true;
+  cartao.scrollIntoView({ block: "start" });
+  cartao.querySelector("summary").focus({ preventScroll: true });
+}
+
+function cartaoRede(f, nomes) {
+  const afetados = f.assets || [];
+  const grav = SEVERIDADES.includes(f.severity) ? f.severity : "info";
+  const resumo = el(
+    "summary",
+    {},
+    el("span", { class: "grav", "data-g": grav, text: GRAVIDADE[grav] }),
+    el("strong", { class: "rede-nome", text: f.title }),
+    el("span", { class: "rede-alcance", text: `Afeta ${plural(afetados.length, "serviço", "serviços")}` }),
+  );
+  const botoes = afetados.map((chave) =>
+    el("li", {}, el("button", { type: "button", class: "botao botao-leve botao-servico", text: nomes.get(chave) || chave, title: `Abrir ${chave}`, onclick: () => abrirServico(chave) })),
+  );
+  return el(
+    "details",
+    { class: `servico rede-achado g-${grav}` },
+    resumo,
+    el(
+      "div",
+      { class: "detalhes" },
+      el(
+        "div",
+        {},
+        el("h4", { text: "O que isso significa" }),
+        el("p", { class: "explicacao", text: f.detail }),
+        f.action ? el("h4", { text: "O que fazer" }) : null,
+        f.action ? el("p", { class: "explicacao", text: f.action }) : null,
+      ),
+      el(
+        "div",
+        {},
+        el("h4", { text: "Serviços afetados" }),
+        el("ul", { class: "rede-servicos" }, botoes),
+        el("dl", { class: "tecnico" }, el("dt", { text: "Prioridade" }), el("dd", { text: `${f.priority} (peso da gravidade × ${plural(afetados.length, "serviço", "serviços")})` })),
+      ),
+    ),
+  );
+}
+
+// Com um serviço só não há o que comparar: a seção nem aparece.
+function renderizarRede(resultado) {
+  const secao = $("#rede");
+  const achados = [...achadosDeRede(resultado)].sort((a, b) => (b.priority || 0) - (a.priority || 0));
+  secao.hidden = !resultado.network || resultado.results.length < 2;
+  if (secao.hidden) return;
+  const nomes = new Map(resultado.results.map((r) => [chaveDoAlvo(r.target), nomeDoAlvo(r.target)]));
+  $("#rede-achados").replaceChildren(
+    ...(achados.length
+      ? achados.map((f) => cartaoRede(f, nomes))
+      : [el("p", { class: "rede-vazia", text: "Comparando os serviços entre si, nada pede atenção: não há autoridade certificadora nem certificado repetidos que criem um risco em conjunto." })]),
   );
 }
 
@@ -629,7 +725,9 @@ function renderizarResultado(resultado) {
   const ordenados = [...resultado.results].sort(
     (a, b) => pior(a) - pior(b) || ORDEM.indexOf(a.assessment.status) - ORDEM.indexOf(b.assessment.status),
   );
+  cartoesPorServico.clear();
   $("#servicos").replaceChildren(...ordenados.map(cartaoServico));
+  renderizarRede(resultado);
 
   const quando = new Date(resultado.finished_at).toLocaleString("pt-BR");
   const auth = resultado.authorization;
