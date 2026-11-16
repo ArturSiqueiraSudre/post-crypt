@@ -21,8 +21,10 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from postcrypt import __version__
 from postcrypt.classify import STATUS_LABELS, load_rules
+from postcrypt.network import analyze_network
+from postcrypt.output import scan_report
 from postcrypt.painel.laboratorio import Laboratorio, encontrar_raiz
-from postcrypt.scanner import ScanResult, run_scan
+from postcrypt.scanner import run_scan
 from postcrypt.scope import Scope, ScopeError, load_scope, parse_scope
 
 ESTATICOS = Path(__file__).resolve().parent / "static"
@@ -62,7 +64,7 @@ class Varredura:
     id: str
     total: int
     parciais: list[dict] = field(default_factory=list)
-    resultado: ScanResult | None = None
+    resultado: dict | None = None  # mesmo JSON da linha de comando, com a chave "network"
     erro: str | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -80,7 +82,7 @@ class Varredura:
                 "total": self.total,
                 "feitos": len(self.parciais),
                 "parciais": list(self.parciais),
-                "resultado": self.resultado.to_dict() if self.resultado else None,
+                "resultado": self.resultado,
                 "erro": self.erro,
             }
 
@@ -240,8 +242,9 @@ def create_app(
                 resultado = run_scan(
                     scope, regras, timeout=pedido.timeout, workers=pedido.workers, on_result=anotar
                 )
+                relatorio = scan_report(resultado, analyze_network(resultado, regras))
                 with job.lock:
-                    job.resultado = resultado
+                    job.resultado = relatorio
             except Exception as exc:  # o painel mostra o erro em vez de travar
                 with job.lock:
                     job.erro = f"a varredura parou: {exc}"

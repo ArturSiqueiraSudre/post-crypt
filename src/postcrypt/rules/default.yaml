@@ -72,3 +72,26 @@ public_keys:
 
 certificates:
   expiry_warning_days: 30   # RTS (UE) 2024/1774, art. 7(5): renovar antes do vencimento
+
+# Correlação de rede (postcrypt.network): achados que relacionam vários alvos.
+# A prioridade de cada achado é severidade × quantos alvos ele afeta.
+network:
+  # Fração dos ativos próprios avaliados que só fazem troca de chave clássica.
+  hndl_exposure: { high: 0.5, medium: 0.25 }      # abaixo disso: low
+  # Fração do escopo sem resposta ou sob responsabilidade de terceiros.
+  visibility_gap: { high: 0.5, medium: 0.25 }     # abaixo disso: low
+
+# Quando a CA não vem na cadeia, a família da chave dela sai do algoritmo com
+# que o certificado do servidor foi assinado: trecho do nome -> entrada de
+# public_keys. A primeira correspondência vale.
+signature_families:
+  "2.16.840.1.101.3.4.3.17": ML-DSA-44
+  "2.16.840.1.101.3.4.3.18": ML-DSA-65
+  "2.16.840.1.101.3.4.3.19": ML-DSA-87
+  ml-dsa-44: ML-DSA-44
+  ml-dsa-65: ML-DSA-65
+  ml-dsa-87: ML-DSA-87
+  rsa: RSA
+  ecdsa: EC
+  ed25519: Ed25519
+  ed448: Ed448

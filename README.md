@@ -12,6 +12,7 @@ Projeto de Engenharia da Computação — Universidade Presbiteriana Mackenzie, 
 | --- | --- | --- |
 | **I0 — Esqueleto** | `postcrypt scan` para TLS, classificador por regras, JSON e tabela | **Pronto** |
 | **Painel web local** | Varredura pelo navegador, sem terminal (adiantado do I2) | **Pronto** |
+| **Correlação de rede** | Achados que relacionam os alvos entre si, priorizados por impacto (estágio 1 da análise de rede) | **Pronto** |
 | I1 — Inventário completo | Sonda SSH, SQLite, CBOM CycloneDX 1.6 | Próximo |
 | I2 — Evidência | Relatório HTML/PDF, registro de certificados, assinatura ML-DSA e `verify` | Planejado |
 | I3 — Validação | Benchmarks sob latência e perda, POCs, testes de usabilidade | Planejado |
@@ -89,6 +90,19 @@ Cada serviço recebe três respostas separadas:
 | **Cifra simétrica** — o conteúdo resiste a um adversário quântico? | `AES_256_GCM` → sim |
 | **Autenticação** — até quando a assinatura do certificado vale? | `RSA-2048` → depreciado após 2030, proibido após 2035 (NIST IR 8547, rascunho) |
 
+### A rede como um todo
+
+Com dois ou mais alvos, a varredura também compara os serviços entre si. Nada novo é coletado: a correlação só lê o que a sonda já observou.
+
+| Achado | O que relaciona |
+| --- | --- |
+| `NET_SHARED_CLASSICAL_CA` | A mesma autoridade certificadora, de assinatura clássica, emitiu o certificado de vários alvos: ponto único de falha |
+| `NET_DUPLICATE_LEAF` | O mesmo certificado de servidor aparece em mais de um alvo |
+| `NET_HNDL_EXPOSURE` | Proporção dos ativos próprios avaliados que só faz troca de chave clássica |
+| `NET_VISIBILITY_GAP` | Quanto do escopo não respondeu ou é de terceiros |
+
+Cada achado traz os alvos afetados e uma prioridade, que é o peso da severidade multiplicado pelo número de alvos. Os achados aparecem numa seção própria do terminal, na chave `network` do JSON e na etapa Resultado do painel. Com um alvo só não há achado de rede. Uma CA cujo algoritmo não tem regra cadastrada vira `NET_SHARED_CA_UNCLASSIFIED`, em vez de ser dada como clássica.
+
 As regras ficam em [`src/postcrypt/rules/default.yaml`](src/postcrypt/rules/default.yaml), não no código. Quando um padrão muda, atualiza-se o arquivo, ou passa-se outro com `--rules`.
 
 ## Laboratório
@@ -102,7 +116,7 @@ postcrypt scan lab/escopo-lab.yaml --json resultado.json
 python lab/verificar_gabarito.py resultado.json
 ```
 
-O CI roda exatamente isso a cada push e falha se algum serviço divergir do [gabarito](lab/gabarito.yaml).
+O CI roda exatamente isso a cada push e falha se algum serviço divergir do [gabarito](lab/gabarito.yaml) ou se algum achado de rede divergir do [gabarito de rede](lab/gabarito-rede.yaml). Todos os certificados do laboratório saem da mesma CA clássica, então o achado de ponto único de falha aparece com os cinco serviços TLS.
 
 Sem Docker, os mesmos casos e portas sobem em Python (o caso híbrido precisa de OpenSSL 3.5+, como o Python instalado pelo uv):
 
@@ -139,8 +153,9 @@ src/postcrypt/
   tls/            ClientHello, leitura do ServerHello, sonda
   certs.py        leitura de certificados X.509
   classify.py     troca de chave × cifra × autenticação
+  network.py      correlação entre alvos e prioridade por impacto
   rules/          regras em YAML
-  output.py       tabela e JSON
+  output.py       tabela, seção de rede e JSON
 lab/              nginx com gabarito, gerador de certificados, conferência
 tests/            unitários, integração e PKI de teste
 docs/decisoes/    registros de decisão

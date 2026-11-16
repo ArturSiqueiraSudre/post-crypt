@@ -1,0 +1,7 @@
+# Achados de rede esperados na varredura do laboratório (Estágio 1: correlação).
+# Cada achado lista os serviços que precisa apontar, pelos nomes do escopo.
+# Todos os certificados do laboratório saem da mesma CA clássica (EC P-384),
+# gerada por lab/gerar_certificados.py: é o caso de ponto único de falha.
+NET_SHARED_CLASSICAL_CA: [tls-hibrido, tls-classico, tls-legado, tls-vencendo, tls-vencido]
+NET_HNDL_EXPOSURE: [tls-classico, tls-legado]
+NET_VISIBILITY_GAP: [desligado]
