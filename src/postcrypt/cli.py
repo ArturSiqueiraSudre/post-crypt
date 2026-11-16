@@ -76,6 +76,43 @@ def scan(
 
 
 @app.command()
+def painel(
+    porta: Annotated[int, typer.Option(help="Porta local do painel.")] = 8765,
+    sem_navegador: Annotated[
+        bool, typer.Option("--sem-navegador", help="Não abre o navegador sozinho.")
+    ] = False,
+) -> None:
+    """Abre o painel no navegador: varredura sem terminal, para quem não é especialista."""
+    import socket
+    import threading
+    import webbrowser
+
+    import uvicorn
+
+    from postcrypt.painel import create_app
+
+    def livre(p: int) -> bool:
+        with socket.socket() as s:
+            try:
+                s.bind(("127.0.0.1", p))
+                return True
+            except OSError:
+                return False
+
+    escolhida = next((p for p in range(porta, porta + 20) if livre(p)), None)
+    if escolhida is None:
+        err.print(f"[red]Erro:[/red] nenhuma porta livre entre {porta} e {porta + 19}.")
+        raise typer.Exit(2)
+
+    url = f"http://127.0.0.1:{escolhida}/"
+    console.print(f"[bold]Painel do Post-Crypt[/bold] em {url}")
+    console.print("Tudo roda neste computador. Feche esta janela para encerrar o painel.")
+    if not sem_navegador:
+        threading.Timer(1.0, webbrowser.open, args=(url,)).start()
+    uvicorn.run(create_app(), host="127.0.0.1", port=escolhida, log_level="warning")
+
+
+@app.command()
 def version() -> None:
     """Mostra a versão instalada."""
     typer.echo(f"post-crypt {__version__}")

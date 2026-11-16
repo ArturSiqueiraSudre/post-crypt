@@ -1,5 +1,6 @@
 """Sonda TLS contra servidores reais (locais) com gabarito conhecido."""
 
+import contextlib
 import json
 import socket
 import threading
@@ -75,6 +76,12 @@ def test_non_tls_service_needs_review():
                     return
                 with conn:
                     conn.sendall(b"SSH-2.0-OpenSSH_10.0\r\n")
+                    # Como um sshd real, lê o que o cliente mandou antes de fechar.
+                    # Fechar com dados não lidos faz o Windows mandar RST, e a
+                    # sonda pode receber o reset antes do banner.
+                    conn.settimeout(2)
+                    with contextlib.suppress(OSError):
+                        conn.recv(16384)
 
         t = threading.Thread(target=banner, daemon=True)
         t.start()
