@@ -10,7 +10,8 @@ from rich.console import Console
 
 from postcrypt import __version__
 from postcrypt.classify import HNDL, load_rules
-from postcrypt.output import render_table, write_json
+from postcrypt.network import analyze_network
+from postcrypt.output import render_network, render_table, write_json
 from postcrypt.scanner import run_scan
 from postcrypt.scope import ScopeError, load_scope
 
@@ -61,15 +62,17 @@ def scan(
         )
 
     result = run_scan(scope, rules, timeout=timeout, workers=workers)
+    network = analyze_network(result, rules)
 
     if json_out:
-        text = write_json(result, json_out)
+        text = write_json(result, network, json_out)
         if quiet:
             typer.echo(text)
         else:
             console.print(f"JSON gravado em {json_out}")
     if not quiet:
         render_table(result, console)
+        render_network(result, network, console)
 
     if fail_on_vulnerable and result.counts().get(HNDL):
         raise typer.Exit(1)
