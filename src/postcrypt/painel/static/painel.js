@@ -33,6 +33,12 @@ const ORDEM = ["hndl_vulnerable", "review", "unreachable", "pqc"];
 const SEVERIDADES = ["critical", "high", "medium", "low", "info"];
 const GRAVIDADE = { critical: "Urgente", high: "Importante", medium: "Atenção", low: "Planejar", info: "Nota" };
 const DONOS = { self: "Da empresa", third_party: "De fornecedor" };
+// Suporte do fabricante à versão encontrada (fingerprint, Estágio 2).
+const SUPORTE = {
+  unsupported: "Sem suporte",
+  supported: "Com suporte",
+  unknown: "Suporte não avaliado",
+};
 
 // Lista fechada de vistas: o nome que vem da URL só vale se estiver aqui.
 const VISTAS = {
@@ -49,6 +55,7 @@ let escopoConferido = null; // escopo já aceito pelo servidor; zera a cada edi�
 let ultimoResultado = null;
 let ocupado = false;
 const cartoesPorServico = new Map(); // "endereço:porta" -> cartão no resultado
+let recursos = {}; // o que o servidor do painel sabe fazer (vem de /api/info)
 
 // ---------- utilidades ----------
 
@@ -143,6 +150,40 @@ function nomeDoAlvo(t) {
 // Mesma chave que o servidor usa em network.findings[].assets.
 function chaveDoAlvo(t) {
   return `${t.host}:${t.port}`;
+}
+
+// Servidor sem o Estágio 2 recusa o campo http_fingerprint: só oferece quando ele declara.
+function comFingerprint() {
+  return recursos.http_fingerprint === true;
+}
+
+// Servidor sem o Estágio 3 recusa protocol: ssh. Mesma regra: só oferece quando ele declara.
+function comSsh() {
+  return recursos.ssh === true;
+}
+
+function ehSsh(t) {
+  return Boolean(t) && t.protocol === "ssh";
+}
+
+// Num serviço SSH não há nome no certificado nem pedido HTTP: os campos ficam desligados.
+function ajustarProtocolo(linha, { trocarPorta }) {
+  const protocolo = linha.querySelector('[data-campo="protocol"]');
+  const ssh = protocolo && protocolo.value === "ssh";
+  const porta = linha.querySelector('[data-campo="port"]');
+  if (trocarPorta) {
+    if (ssh && (porta.value === "443" || porta.value === "")) porta.value = "22";
+    if (!ssh && porta.value === "22") porta.value = "443";
+  }
+  const sni = linha.querySelector('[data-campo="sni"]');
+  const caixa = linha.querySelector('[data-campo="http_fingerprint"]');
+  sni.disabled = ssh;
+  sni.placeholder = ssh ? "Não se aplica a SSH" : "Só se o endereço for um IP";
+  if (ssh) sni.value = "";
+  if (caixa) {
+    caixa.disabled = ssh;
+    if (ssh) caixa.checked = false;
+  }
 }
 
 // ---------- navegação entre vistas ----------
@@ -283,7 +324,8 @@ function adicionarAlvo(valores = {}) {
   const linha = $("#tpl-alvo").content.firstElementChild.cloneNode(true);
   for (const campo of linha.querySelectorAll("[data-campo]")) {
     const v = valores[campo.dataset.campo];
-    if (v !== undefined && v !== null) campo.value = v;
+    if (campo.type === "checkbox") campo.checked = v === true;
+    else if (v !== undefined && v !== null) campo.value = v;
   }
   linha.querySelector(".remover").addEventListener("click", () => {
     linha.remove();
@@ -291,6 +333,8 @@ function adicionarAlvo(valores = {}) {
     escopoMudou();
   });
   linha.addEventListener("input", () => linha.removeAttribute("data-erro"));
+  linha.querySelector('[data-campo="protocol"]').addEventListener("change", () => ajustarProtocolo(linha, { trocarPorta: true }));
+  ajustarProtocolo(linha, { trocarPorta: false });
   $("#lista-alvos").append(linha);
   escopoMudou();
   return linha;
@@ -301,7 +345,14 @@ function lerEscopo() {
   const alvos = [...document.querySelectorAll("#lista-alvos .alvo")]
     .map((linha) => {
       const alvo = {};
-      for (const campo of linha.querySelectorAll("[data-campo]")) alvo[campo.dataset.campo] = campo.value;
+      for (const campo of linha.querySelectorAll("[data-campo]")) {
+        if (campo.dataset.campo === "protocol") {
+          // tls é o padrão: o campo só vai quando é SSH e o servidor conhece SSH.
+          if (campo.value === "ssh" && comSsh()) alvo.protocol = "ssh";
+        } else if (campo.type !== "checkbox") alvo[campo.dataset.campo] = campo.value;
+        // O padrão é não pedir: o campo só vai quando a caixa está marcada.
+        else if (campo.checked && !campo.disabled && comFingerprint()) alvo[campo.dataset.campo] = true;
+      }
       return alvo;
     })
     .filter((a) => a.host.trim() || a.label.trim());
@@ -364,7 +415,10 @@ function renderizarRevisao(escopo) {
     el("dd", { text: a.reference || "—" }),
   );
   $("#revisao-contagem").textContent = `(${escopo.targets.length})`;
-  const colunas = ["Nome", "Endereço", "Porta", "De quem é", "Nome no certificado"];
+  const colunas = ["Nome", "Endereço", "Porta"];
+  if (comSsh()) colunas.push("Protocolo");
+  colunas.push("De quem é", "Nome no certificado");
+  if (comFingerprint()) colunas.push("Versão do software");
   $("#revisao-servicos").replaceChildren(
     el(
       "table",
@@ -380,8 +434,10 @@ function renderizarRevisao(escopo) {
             el("td", { text: t.label || "—" }),
             el("td", { text: t.host }),
             el("td", { text: String(t.port) }),
+            comSsh() ? el("td", { text: ehSsh(t) ? "SSH" : "TLS" }) : null,
             el("td", { text: DONOS[t.owner] || t.owner }),
             el("td", { text: t.sni && t.sni !== t.host ? t.sni : "—" }),
+            comFingerprint() ? el("td", { text: ehSsh(t) ? "Pelo banner SSH" : t.http_fingerprint === true ? "Identificar (1 pedido HTTP)" : "Não pedir" }) : null,
           ),
         ),
       ),
@@ -482,7 +538,17 @@ function respostaCifra(r) {
   return { classe: "neutro", texto: "Não deu para saber", obs: s.cipher || "" };
 }
 
+function respostaChaveSsh(r) {
+  const auth = r.assessment.authentication || {};
+  const chaves = r.ssh && Array.isArray(r.ssh.host_key) ? r.ssh.host_key : [];
+  const obs = chaves.slice(0, 2).join(", ") + (chaves.length > 2 ? " …" : "");
+  if (auth.status === "pqc") return { classe: "bom", texto: "Chave pós-quântica", obs };
+  if (auth.status === "quantum_vulnerable") return { classe: "neutro", texto: "Chave clássica, migrar até 2035", obs };
+  return { classe: "neutro", texto: "Chave não lida", obs };
+}
+
 function respostaCertificado(r) {
+  if (r.ssh) return respostaChaveSsh(r);
   const certs = r.tls && r.tls.certificates;
   if (!certs || !certs.length) return { classe: "neutro", texto: "Não lido", obs: "" };
   const c = certs[0];
@@ -523,6 +589,8 @@ function detalheManchete(resultado) {
   const partes = [];
   if (vencidos) partes.push(`${plural(vencidos, "serviço tem", "serviços têm")} certificado vencido`);
   if (vencendo) partes.push(`${plural(vencendo, "certificado vence", "certificados vencem")} em menos de 30 dias`);
+  const semSuporte = resultado.results.filter((r) => produtosSemSuporte(r).length).length;
+  if (semSuporte) partes.push(`${plural(semSuporte, "serviço roda", "serviços rodam")} software sem suporte do fabricante`);
   const sem = resultado.summary.unreachable || 0;
   let texto = partes.length ? partes.join(" e ") + "." : "";
   if (sem) texto += `${texto ? " " : ""}${plural(sem, "serviço não respondeu e ficou", "serviços não responderam e ficaram")} fora da análise.`;
@@ -542,13 +610,14 @@ function cartaoServico(r) {
       "div",
       { class: "nome" },
       el("strong", { text: nomeDoAlvo(t) }),
-      el("small", { text: `${t.host}:${t.port}` }),
+      el("small", { text: `${t.host}:${t.port}${ehSsh(t) ? " · SSH" : ""}` }),
       t.owner === "third_party" ? el("span", { class: "dono", text: "De fornecedor" }) : null,
+      produtosSemSuporte(r).length ? el("span", { class: "versao-alerta", text: "Software sem suporte" }) : null,
     ),
     el("span", { class: "selo", text: sit.nome, title: r.assessment.status_label }),
     celula("Tráfego gravado hoje", respostaTrafego(r)),
     celula("Cifra", respostaCifra(r)),
-    celula("Certificado", respostaCertificado(r)),
+    celula(r.ssh ? "Chave do servidor" : "Certificado", respostaCertificado(r)),
   );
 
   const achados = r.assessment.findings.length
@@ -567,21 +636,9 @@ function cartaoServico(r) {
       )
     : el("p", { text: "Nada a corrigir neste serviço." });
 
-  const tls = r.tls || {};
-  const cert = (tls.certificates || [])[0];
-  const linhas = [
-    ["Situação técnica", r.assessment.status_label],
-    ["TLS 1.3", tls.tls13 === undefined ? "—" : tls.tls13 ? "Sim" : "Não"],
-    ["Grupos pós-quânticos", (tls.pqc_groups || []).join(", ") || "Nenhum"],
-    ["Troca clássica", tls.classical_group || tls.tls12_key_exchange || "—"],
-    ["Cifra", tls.tls13_cipher_suite || tls.tls12_cipher_suite || "—"],
-    ["Certificado", cert ? cert.subject : "—"],
-    ["Emitido por", cert ? cert.issuer : "—"],
-    ["Válido até", cert ? cert.not_after.slice(0, 10) : "—"],
-    ["Assinatura", cert ? cert.signature_algorithm : "—"],
-    ["Tempo da verificação", `${r.duration_ms} ms`],
-  ];
+  const linhas = r.ssh ? linhasSsh(r) : linhasTls(r);
   if (r.error) linhas.push(["Erro", r.error]);
+  linhas.push(...linhasDeFingerprint(r));
 
   const naRede = achadosDeRede(ultimoResultado).filter((f) => (f.assets || []).includes(chaveDoAlvo(t)));
   const blocoRede = naRede.length
@@ -610,12 +667,115 @@ function cartaoServico(r) {
     el(
       "div",
       { class: "detalhes" },
-      el("div", {}, el("h4", { text: "O que isso significa" }), el("p", { class: "explicacao", text: sit.explica }), el("h4", { text: "O que fazer" }), achados, blocoRede),
+      el("div", {}, el("h4", { text: "O que isso significa" }), el("p", { class: "explicacao", text: sit.explica }), el("h4", { text: "O que fazer" }), achados, blocoRede, blocoVersao(r)),
       el("div", {}, el("h4", { text: "Dados técnicos" }), el("dl", { class: "tecnico" }, linhas.flatMap(([k, v]) => [el("dt", { text: k }), el("dd", { text: v })]))),
     ),
   );
   cartoesPorServico.set(chaveDoAlvo(t), cartao);
   return cartao;
+}
+
+function linhasTls(r) {
+  const tls = r.tls || {};
+  const cert = (tls.certificates || [])[0];
+  return [
+    ["Situação técnica", r.assessment.status_label],
+    ["TLS 1.3", tls.tls13 === undefined ? "—" : tls.tls13 ? "Sim" : "Não"],
+    ["Grupos pós-quânticos", (tls.pqc_groups || []).join(", ") || "Nenhum"],
+    ["Troca clássica", tls.classical_group || tls.tls12_key_exchange || "—"],
+    ["Cifra", tls.tls13_cipher_suite || tls.tls12_cipher_suite || "—"],
+    ["Certificado", cert ? cert.subject : "—"],
+    ["Emitido por", cert ? cert.issuer : "—"],
+    ["Válido até", cert ? cert.not_after.slice(0, 10) : "—"],
+    ["Assinatura", cert ? cert.signature_algorithm : "—"],
+    ["Tempo da verificação", `${r.duration_ms} ms`],
+  ];
+}
+
+// Listas vêm do servidor varrido: entram só como texto, e longas são cortadas para leitura.
+function lista(valor, maximo = 8) {
+  const itens = Array.isArray(valor) ? valor.map(String) : [];
+  if (!itens.length) return "—";
+  return itens.slice(0, maximo).join(", ") + (itens.length > maximo ? ` e mais ${itens.length - maximo}` : "");
+}
+
+function linhasSsh(r) {
+  const ssh = r.ssh || {};
+  const banner = [ssh.software, ssh.comments].filter(Boolean).join(" ");
+  return [
+    ["Situação técnica", r.assessment.status_label],
+    ["Protocolo", ssh.protocol ? `SSH ${ssh.protocol}` : "—"],
+    ["Software (banner)", banner || "—"],
+    ["Troca de chave aceita", lista(ssh.kex)],
+    ["Chaves do servidor", lista(ssh.host_key)],
+    ["Cifras aceitas", lista(ssh.ciphers)],
+    ["Proteção Terrapin (strict KEX)", ssh.strict_kex ? "Sim" : "Não"],
+    ["Tempo da verificação", `${r.duration_ms} ms`],
+  ];
+}
+
+// ---------- resultado: versão do software (fingerprint) ----------
+
+// Resultado de servidor sem o Estágio 2 não traz "fingerprint": tudo aqui some.
+function fingerprintDe(r) {
+  const fp = r && r.fingerprint;
+  return fp && typeof fp === "object" ? fp : null;
+}
+
+function produtosDe(r) {
+  const fp = fingerprintDe(r);
+  return fp && Array.isArray(fp.products) ? fp.products : [];
+}
+
+function produtosSemSuporte(r) {
+  return produtosDe(r).filter((p) => p.support === "unsupported");
+}
+
+function nomeDoProduto(p) {
+  return p.version ? `${p.name} ${p.version}` : `${p.name} (versão escondida pelo servidor)`;
+}
+
+function blocoVersao(r) {
+  const fp = fingerprintDe(r);
+  if (!fp) return [];
+  const produtos = produtosDe(r);
+  return [
+    el("h4", { class: "com-espaco", text: "Versão do software" }),
+    produtos.length
+      ? el(
+          "ul",
+          { class: "versoes" },
+          produtos.map((p) => {
+            const s = Object.hasOwn(SUPORTE, p.support) ? p.support : "unknown";
+            return el(
+              "li",
+              { class: "versao" },
+              el("span", { class: "suporte", "data-s": s, text: SUPORTE[s] }),
+              el("strong", { text: nomeDoProduto(p) }),
+              p.note ? el("p", { text: p.note }) : null,
+            );
+          }),
+        )
+      : null,
+    // Com produtos na lista, o resumo só repetiria; sem eles, o motivo é o que importa.
+    !produtos.length && fp.detail ? el("p", { class: "explicacao versao-detalhe", text: fp.detail }) : null,
+  ];
+}
+
+function linhasDeFingerprint(r) {
+  const fp = fingerprintDe(r);
+  if (!fp) return [];
+  const http = fp.http && typeof fp.http === "object" ? fp.http : {};
+  const cabecalhos = http.headers && typeof http.headers === "object" ? http.headers : {};
+  const pilha = fp.tls_stack && typeof fp.tls_stack === "object" ? fp.tls_stack : {};
+  // Em SSH a versão vem do banner, já listado nos dados técnicos: não há pedido HTTP.
+  const linhas = r.ssh ? [] : [["Pedido HTTP", http.requested ? "1 (HEAD /)" : "Nenhum"]];
+  if (cabecalhos.server) linhas.push(["Cabeçalho Server", cabecalhos.server]);
+  if (cabecalhos["x-powered-by"]) linhas.push(["Cabeçalho X-Powered-By", cabecalhos["x-powered-by"]]);
+  if (pilha.signature) {
+    linhas.push(["Assinatura TLS (estimativa)", pilha.stack ? `${pilha.signature} · ${pilha.stack}` : `${pilha.signature} · pilha não identificada`]);
+  }
+  return linhas;
 }
 
 // ---------- resultado: a rede como um todo ----------
@@ -682,7 +842,7 @@ function renderizarRede(resultado) {
   $("#rede-achados").replaceChildren(
     ...(achados.length
       ? achados.map((f) => cartaoRede(f, nomes))
-      : [el("p", { class: "rede-vazia", text: "Comparando os serviços entre si, nada pede atenção: não há autoridade certificadora nem certificado repetidos que criem um risco em conjunto." })]),
+      : [el("p", { class: "rede-vazia", text: "Comparando os serviços entre si, nada pede atenção: não há autoridade certificadora, certificado nem versão sem suporte repetidos que criem um risco em conjunto." })]),
   );
 }
 
@@ -727,6 +887,8 @@ function renderizarResultado(resultado) {
   );
   cartoesPorServico.clear();
   $("#servicos").replaceChildren(...ordenados.map(cartaoServico));
+  const ultimaColuna = document.querySelector(".colunas-servicos span:last-child");
+  ultimaColuna.textContent = resultado.results.some((r) => r.ssh) ? "Certificado ou chave" : "Certificado";
   renderizarRede(resultado);
 
   const quando = new Date(resultado.finished_at).toLocaleString("pt-BR");
@@ -772,7 +934,8 @@ async function usarLaboratorio() {
     const { escopo, aviso } = await api("/api/laboratorio/ligar", {});
     preencherEscopo(escopo);
     mostrarMensagem(
-      "Laboratório de teste ligado neste computador: 6 serviços de exemplo, um deles desligado de propósito. Clique em Revisar e depois em Varrer." +
+      // A contagem vem do escopo do laboratório: muda quando o laboratório ganha serviços.
+      `Laboratório de teste ligado neste computador: ${plural(escopo.targets.length, "serviço", "serviços")} de exemplo, um deles desligado de propósito. Clique em Revisar e depois em Varrer.` +
         (aviso ? ` Aviso: ${aviso}` : ""),
       "info",
     );
@@ -860,6 +1023,9 @@ async function iniciar() {
 
   try {
     const info = await api("/api/info");
+    recursos = info.recursos && typeof info.recursos === "object" ? info.recursos : {};
+    document.body.classList.toggle("com-fingerprint", comFingerprint());
+    document.body.classList.toggle("com-ssh", comSsh());
     $("#form-escopo").date.value = info.hoje;
     $("#usar-lab").hidden = !info.laboratorio.disponivel;
     $("#estado-info").textContent = `Regras de ${info.regras} · versão ${info.versao}`;
