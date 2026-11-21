@@ -82,7 +82,7 @@
               </div>
               <div class="cartao">
                 <div class="cabecalho-alvos" aria-hidden="true">
-                  <span>Nome</span><span>Endereço</span><span>Porta</span><span>De quem é</span><span>Nome no certificado</span><span></span>
+                  <span>Nome</span><span>Endereço</span><span>Porta</span><span>De quem é</span><span>Nome no certificado</span><span class="so-fingerprint">Versão</span><span></span>
                 </div>
                 <ol id="lista-alvos" class="lista-alvos"></ol>
                 <button type="button" id="adicionar-alvo" class="botao botao-leve botao-adicionar">Adicionar serviço</button>
@@ -238,10 +238,12 @@ targets:
                   <tr><th scope="row"><code>label</code></th><td>Nome</td><td>Não</td><td>Um apelido para você reconhecer o serviço no resultado. Exemplo: Portal VPN.</td></tr>
                   <tr><th scope="row"><code>owner</code></th><td>De quem é</td><td>Não</td><td><code>self</code> quando o serviço é da empresa (é o padrão) ou <code>third_party</code> quando é de um fornecedor.</td></tr>
                   <tr><th scope="row"><code>sni</code></th><td>Nome no certificado</td><td>Não</td><td>Só quando o endereço é um IP: o nome pelo qual o serviço é conhecido, para o servidor apresentar o certificado certo.</td></tr>
+                  <tr class="so-fingerprint"><th scope="row"><code>http_fingerprint</code></th><td>Identificar versão</td><td>Não</td><td><code>true</code> permite um único pedido HTTP (<code>HEAD /</code>) a este serviço, no mesmo endereço e porta, para ler o nome e a versão do software. Sem o campo, nada além do TLS é contatado. Use só se quem autorizou estiver de acordo.</td></tr>
                 </tbody>
               </table>
             </div>
             <p class="ajuda">Serviços de fornecedor precisam da autorização do fornecedor antes de entrar na lista.</p>
+            <p class="ajuda so-fingerprint">Identificar a versão é opcional e vem desligado. Com ele, o resultado mostra, por exemplo, que o servidor roda um nginx ou um OpenSSL que o fabricante não corrige mais. O pedido é um só, nunca segue para outros endereços e nunca procura outras portas.</p>
           </section>
 
           <section class="guia-secao" id="guia-endereco" aria-labelledby="guia-endereco-titulo">
@@ -357,6 +359,9 @@ targets:
         </select></label>
       <label class="campo"><span class="rotulo-movel">Nome no certificado <em>(opcional)</em></span>
         <input data-campo="sni" type="text" placeholder="Só se o endereço for um IP" spellcheck="false" autocapitalize="off"></label>
+      <label class="campo campo-caixa so-fingerprint" title="Permite um único pedido HTTP (HEAD /) a este serviço para ler o nome e a versão do software. Marque só se a autorização cobre isso.">
+        <span class="rotulo-movel">Versão do software <em>(opcional)</em></span>
+        <span class="caixa"><input data-campo="http_fingerprint" type="checkbox" aria-label="Identificar a versão do software deste serviço (1 pedido HTTP)"> Identificar</span></label>
       <button type="button" class="remover" aria-label="Remover serviço">Remover</button>
     </li>
   </template>

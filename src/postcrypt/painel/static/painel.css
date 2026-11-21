@@ -216,6 +216,20 @@ input[aria-invalid="true"] { border-color: var(--laranja); background: var(--lar
 }
 .remover:hover { color: var(--laranja); }
 
+/* Versão do software (Estágio 2): só aparece quando o servidor do painel oferece o recurso */
+body:not(.com-fingerprint) .so-fingerprint { display: none; }
+.com-fingerprint .cabecalho-alvos, .com-fingerprint .alvo {
+  grid-template-columns: 1.1fr 1.6fr 0.55fr 0.9fr 1.1fr 8.5rem 5.5rem;
+}
+.campo-caixa .caixa {
+  display: flex; align-items: center; gap: 8px; min-height: 42px;
+  font-weight: 400; color: var(--tinta); cursor: pointer;
+}
+.campo-caixa input[type="checkbox"] {
+  width: 18px; height: 18px; min-height: 0; padding: 0; margin: 0; flex: none;
+  accent-color: var(--ciano);
+}
+
 /* Botões */
 .botao {
   font: 600 0.95rem/1 var(--fonte-texto);
@@ -369,6 +383,20 @@ input[aria-invalid="true"] { border-color: var(--laranja); background: var(--lar
 .tecnico dt { color: var(--suave); }
 .tecnico dd { margin: 0; color: var(--tinta); overflow-wrap: anywhere; }
 
+.versoes { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 10px; }
+.versao { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; }
+.versao strong { color: var(--tinta); font-weight: 600; overflow-wrap: anywhere; }
+.versao p { grid-column: 2; margin: 0; font-size: 0.92rem; }
+.suporte {
+  font-size: 0.78rem; font-weight: 700; padding: 2px 8px; border-radius: 4px;
+  height: fit-content; width: fit-content;
+  background: var(--lacuna-claro); color: var(--texto);
+}
+.suporte[data-s="unsupported"] { background: var(--laranja-claro); color: var(--laranja); }
+.suporte[data-s="supported"] { background: var(--ciano-claro); color: var(--ciano-forte); }
+.versao-detalhe { font-size: 0.92rem; color: var(--suave); }
+.nome .versao-alerta { color: var(--laranja); font-size: 0.8rem; font-weight: 600; }
+
 .carimbo { color: var(--suave); font-size: 0.85rem; margin-top: 22px; }
 
 /* Guia do arquivo de escopo */
@@ -414,7 +442,7 @@ input[aria-invalid="true"] { border-color: var(--laranja); background: var(--lar
 @container (max-width: 820px) {
   .campos-autorizacao { grid-template-columns: 1fr; }
   .cabecalho-alvos, .colunas-servicos { display: none; }
-  .alvo {
+  .alvo, .com-fingerprint .alvo {
     grid-template-columns: 1fr 1fr; gap: 10px 12px;
     padding: 14px; border: 1px solid var(--linha-suave); border-radius: var(--raio);
   }
