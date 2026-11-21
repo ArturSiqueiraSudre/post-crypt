@@ -11,6 +11,9 @@ versão. Sem sinal suficiente, o resultado é "não observado", nunca um chute.
 Dois sinais, de confiança diferente:
 
 - cabeçalhos ``Server`` e ``X-Powered-By`` (o servidor declara o que é);
+- banner SSH (``SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13``), que o servidor manda
+  sozinho ao conectar e a sonda SSH já lê (decisão 0003): não exige
+  ``http_fingerprint``;
 - assinatura da pilha TLS no estilo JA4S (versão, suíte e ordem das
   extensões do ServerHello). É heurística, com falsos positivos conhecidos:
   só vira nome de pilha quando a assinatura está cadastrada nas regras, e
@@ -46,7 +49,8 @@ UNSUPPORTED = "unsupported"
 UNKNOWN = "unknown"
 
 SOURCE_HEADERS = ("server", "x-powered-by")  # ordem em que os produtos são listados
-HEADER_LABELS = {"server": "Server", "x-powered-by": "X-Powered-By"}
+SSH_BANNER = "ssh-banner"
+HEADER_LABELS = {"server": "Server", "x-powered-by": "X-Powered-By", SSH_BANNER: "banner SSH"}
 MAX_PRODUCTS_PER_HEADER = 8
 MAX_DISTRO_CHARS = 40
 MAX_STACK_CHARS = 80
@@ -57,6 +61,8 @@ _VERSION = re.compile(r"(\d{1,6})((?:\.\d{1,6}){0,4})")
 _SPEC_BRANCH = re.compile(r"\d{1,6}(?:\.\d{1,6}){0,4}")
 _SPEC_MINIMUM = re.compile(r">=\s*(\d{1,6}(?:\.\d{1,6}){0,4})")
 _TLS_VERSIONS = {0x0303: "12", 0x0304: "13"}
+# "OpenSSH_9.6p1", "OpenSSH_for_Windows_9.5", "dropbear_2022.83", "Cisco-1.25"
+_SSH_SOFTWARE = re.compile(r"(?P<name>[A-Za-z0-9][\x21-\x7e]*?)[_-](?P<version>\d[\x21-\x7e]*)")
 
 NOTE_HIDDEN_VERSION = (
     "O servidor esconde o número da versão, então não dá para dizer se ainda tem suporte."
@@ -365,6 +371,44 @@ def identify_products(head: HTTPResponseHead, rules: Rules) -> tuple[ProductVers
                 seen.add(identity)
                 products.append(product)
     return tuple(products)
+
+
+# ---------- banner SSH ----------
+
+
+def parse_ssh_software(software: str, comments: str | None) -> ProductToken | None:
+    """``OpenSSH_9.6p1`` + ``Ubuntu-3ubuntu13`` -> OpenSSH 9.6p1 (comentário Ubuntu…).
+
+    Sem versão reconhecível (ex.: ``SSH-2.0-Servidor``), não há produto: nunca chute.
+    """
+    match = _SSH_SOFTWARE.fullmatch(software)
+    if match is None:
+        return None
+    return ProductToken(match.group("name"), match.group("version"), comments, SSH_BANNER)
+
+
+def fingerprint_ssh_banner(
+    *, reachable: bool, software: str | None, comments: str | None, rules: Rules
+) -> ServiceFingerprint:
+    """Fingerprint de um alvo SSH a partir do banner que a sonda já leu."""
+    if not reachable or software is None:
+        return ServiceFingerprint(
+            UNAVAILABLE,
+            "Sem banner SSH: não há o que identificar.",
+            HTTPEvidence(requested=False),
+        )
+    token = parse_ssh_software(software, comments)
+    if token is None:
+        return ServiceFingerprint(
+            NOT_OBSERVED,
+            "Versão não observada: o banner SSH não traz um número de versão reconhecível.",
+            HTTPEvidence(requested=False),
+        )
+    distro = distribution(comments, rules)
+    product = identify_product(token, rules, distro)
+    return ServiceFingerprint(
+        OBSERVED, _summary((product,)), HTTPEvidence(requested=False), (product,)
+    )
 
 
 # ---------- pilha TLS: assinatura estilo JA4S ----------

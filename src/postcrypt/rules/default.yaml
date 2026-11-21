@@ -26,6 +26,12 @@ references:
     title: "OpenSSL Release Strategy (openssl-library.org/policies/releasestrat), mai. 2026"
   - id: NGINX-NEWS
     title: "nginx.org — notícias de versões; ramos 1.30 (estável) e 1.31 (mainline) em nov. 2026"
+  - id: RFC-4253
+    title: "RFC 4253 — The Secure Shell (SSH) Transport Layer Protocol"
+  - id: OPENSSH-PQ
+    title: "openssh.com/pq.html — sntrup761x25519-sha512 desde o 9.0; mlkem768x25519-sha256 desde o 9.9, padrão no 10.0"
+  - id: FIPS-186-5
+    title: "NIST FIPS 186-5 (2023) — Digital Signature Standard: DSA deixa de ser aprovado para gerar assinaturas"
   - id: PHP-SUPPORTED
     title: "php.net/supported-versions — 8.2 com suporte de segurança até 31/12/2026"
 
@@ -74,6 +80,7 @@ public_keys:
     disallowed_after: 2035
   Ed25519: { quantum_vulnerable: true, disallowed_after: 2035 }
   Ed448: { quantum_vulnerable: true, disallowed_after: 2035 }
+  DSA: { quantum_vulnerable: true, disallowed_after: 2023 }   # FIPS 186-5: só verificação
   ML-DSA-44: { quantum_vulnerable: false }
   ML-DSA-65: { quantum_vulnerable: false }
   ML-DSA-87: { quantum_vulnerable: false }
@@ -133,6 +140,11 @@ fingerprint:
       tokens: [OpenSSL]
       supported: ["3.5", ">=4.0"]    # 3.0 (LTS) saiu em 07/09/2026; 3.4 e 3.6 em out./nov. 2026
       note: "O OpenSSL só negocia troca de chave híbrida com ML-KEM a partir do 3.5."
+    openssh:
+      label: OpenSSH
+      tokens: [OpenSSH, OpenSSH_for_Windows]
+      supported: [">=10.6"]          # o projeto só corrige a versão mais recente (10.6, out. 2026)
+      note: "O OpenSSH só publica correções na versão mais recente; distribuições aplicam correções nas próprias versões."
     php:
       label: PHP
       tokens: [PHP]
@@ -161,3 +173,58 @@ fingerprint:
   # chute. Exemplo de entrada:
   #   t120400_c030_0123456789ab: "OpenSSL 3.5 (nginx 1.30)"
   tls_stacks: {}
+
+# SSH (postcrypt.classify_ssh, decisão 0003). Os nomes são os do protocolo,
+# exatamente como o servidor anuncia na mensagem KEXINIT (RFC 4253).
+ssh:
+  # Troca de chave: é aqui que mora o risco "Harvest Now, Decrypt Later".
+  # hybrid = pós-quântico combinado com clássico; weak = clássico e fraco já hoje.
+  kex:
+    mlkem768x25519-sha256: hybrid            # padrão do OpenSSH 10.0+
+    mlkem768nistp256-sha256: hybrid
+    mlkem1024nistp384-sha384: hybrid
+    sntrup761x25519-sha512: hybrid
+    sntrup761x25519-sha512@openssh.com: hybrid   # padrão do OpenSSH 9.0 a 9.9
+    curve25519-sha256: classical
+    curve25519-sha256@libssh.org: classical
+    ecdh-sha2-nistp256: classical
+    ecdh-sha2-nistp384: classical
+    ecdh-sha2-nistp521: classical
+    diffie-hellman-group-exchange-sha256: classical
+    diffie-hellman-group14-sha256: classical
+    diffie-hellman-group16-sha512: classical
+    diffie-hellman-group18-sha512: classical
+    diffie-hellman-group14-sha1: weak
+    diffie-hellman-group1-sha1: weak
+    diffie-hellman-group-exchange-sha1: weak
+
+  # Chave do servidor (autenticação) -> família em public_keys. O sufixo
+  # -cert-v01@openssh.com (certificado SSH) é ignorado na comparação.
+  host_keys:
+    ssh-ed25519: { family: Ed25519 }
+    sk-ssh-ed25519@openssh.com: { family: Ed25519 }
+    ssh-ed448: { family: Ed448 }
+    ecdsa-sha2-nistp256: { family: EC }
+    ecdsa-sha2-nistp384: { family: EC }
+    ecdsa-sha2-nistp521: { family: EC }
+    sk-ecdsa-sha2-nistp256@openssh.com: { family: EC }
+    rsa-sha2-256: { family: RSA }
+    rsa-sha2-512: { family: RSA }
+    ssh-rsa: { family: RSA, weak: "assinatura RSA com SHA-1" }
+    ssh-dss: { family: DSA, weak: "DSA, removido do OpenSSH 10.0" }
+
+  # Cifra simétrica: mesma leitura do TLS (Grover reduz a margem pela metade).
+  ciphers:
+    chacha20-poly1305@openssh.com: { status: ok }
+    aes256-gcm@openssh.com: { status: ok }
+    aes256-ctr: { status: ok }
+    aes192-ctr: { status: ok }
+    aes128-gcm@openssh.com: { status: ok, note: "Aceito pelo NIST; a CNSA 2.0 exige AES-256." }
+    aes128-ctr: { status: ok, note: "Aceito pelo NIST; a CNSA 2.0 exige AES-256." }
+    aes256-cbc: { status: weak, note: "Modo CBC no SSH é vulnerável a ataques de texto escolhido." }
+    aes192-cbc: { status: weak, note: "Modo CBC no SSH é vulnerável a ataques de texto escolhido." }
+    aes128-cbc: { status: weak, note: "Modo CBC no SSH é vulnerável a ataques de texto escolhido." }
+    3des-cbc: { status: weak, note: "3DES é fraco mesmo sem computador quântico." }
+    arcfour: { status: weak, note: "RC4 é quebrado." }
+    arcfour128: { status: weak, note: "RC4 é quebrado." }
+    arcfour256: { status: weak, note: "RC4 é quebrado." }

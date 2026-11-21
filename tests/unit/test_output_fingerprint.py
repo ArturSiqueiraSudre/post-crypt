@@ -69,3 +69,15 @@ def test_versao_hostil_nao_vira_marcacao_no_terminal():
     saida = console.file.getvalue()
     assert "[red]x[/red]" in saida  # aparece como texto literal, não como cor
     assert "\x1b" not in saida
+
+
+def test_alvo_ssh_mostra_tipos_de_chave_no_lugar_do_certificado():
+    from postcrypt.output import _cert_cell
+    from postcrypt.ssh.probe import SSHObservation
+
+    r = resultado()
+    r.observation = None
+    r.ssh = SSHObservation(host_key=["ssh-ed25519", "rsa-sha2-512", "ecdsa-sha2-nistp256"])
+    assert _cert_cell(r) == ("ssh-ed25519, rsa-sha2-512 …", "—")
+    r.ssh = SSHObservation()
+    assert _cert_cell(r) == ("—", "—")

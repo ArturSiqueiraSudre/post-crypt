@@ -13,4 +13,6 @@ targets:
   - { host: 127.0.0.1, port: 8444, label: tls-vencendo, sni: tls-vencendo.lab, http_fingerprint: true }
   - { host: 127.0.0.1, port: 8445, label: tls-vencido, sni: tls-vencido.lab }
   - { host: 127.0.0.1, port: 8446, label: tls-desconhecido, sni: tls-desconhecido.lab, http_fingerprint: true }
+  - { host: 127.0.0.1, port: 8447, label: ssh-hibrido, protocol: ssh }
+  - { host: 127.0.0.1, port: 8448, label: ssh-classico, protocol: ssh }
   - { host: 127.0.0.1, port: 8449, label: desligado }

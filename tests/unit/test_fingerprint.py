@@ -14,10 +14,12 @@ from postcrypt.fingerprint import (
     UNKNOWN,
     UNSUPPORTED,
     evaluate_support,
+    fingerprint_ssh_banner,
     fingerprint_target,
     identify_products,
     identify_tls_stack,
     parse_product_tokens,
+    parse_ssh_software,
     parse_version,
     tls_stack_signature,
 )
@@ -305,3 +307,64 @@ def test_nome_de_pilha_hostil_nas_regras_e_cortado():
     regras = copy.deepcopy(RULES)
     regras["fingerprint"]["tls_stacks"] = {tls_stack_signature(HELLO): "x" * 500}
     assert len(identify_tls_stack(HELLO, regras).stack) == 80
+
+
+# ---------- banner SSH (Estágio 3): lido pela sonda, sem pedido extra ----------
+
+
+@pytest.mark.parametrize(
+    ("software", "nome", "versao"),
+    [
+        ("OpenSSH_9.6p1", "OpenSSH", "9.6p1"),
+        ("OpenSSH_for_Windows_9.5", "OpenSSH_for_Windows", "9.5"),
+        ("dropbear_2022.83", "dropbear", "2022.83"),
+        ("Cisco-1.25", "Cisco", "1.25"),
+    ],
+)
+def test_software_do_banner_ssh(software, nome, versao):
+    token = parse_ssh_software(software, None)
+    assert (token.name, token.version, token.source) == (nome, versao, "ssh-banner")
+
+
+@pytest.mark.parametrize("software", ["Servidor", "_9.6", "OpenSSH_", "-1.0"])
+def test_banner_ssh_sem_versao_nao_vira_produto(software):
+    assert parse_ssh_software(software, None) is None
+
+
+def test_openssh_antigo_do_ubuntu_sem_suporte_com_aviso_de_distribuicao():
+    fp = fingerprint_ssh_banner(
+        reachable=True, software="OpenSSH_8.9p1", comments="Ubuntu-3ubuntu0.13", rules=RULES
+    )
+    (produto,) = fp.products
+    assert fp.status == OBSERVED and not fp.http.requested
+    assert (produto.name, produto.version, produto.support) == ("OpenSSH", "8.9p1", UNSUPPORTED)
+    assert "Pacotes de distribuição (Ubuntu)" in produto.note
+
+
+def test_openssh_atual_com_suporte():
+    fp = fingerprint_ssh_banner(reachable=True, software="OpenSSH_10.6", comments=None, rules=RULES)
+    assert fp.products[0].support == SUPPORTED
+
+
+def test_openssh_para_windows_usa_a_mesma_regra():
+    fp = fingerprint_ssh_banner(
+        reachable=True, software="OpenSSH_for_Windows_9.5", comments=None, rules=RULES
+    )
+    assert fp.products[0].key == "openssh" and fp.products[0].support == UNSUPPORTED
+
+
+@pytest.mark.parametrize(
+    ("reachable", "software", "status"),
+    [(False, None, UNAVAILABLE), (True, None, UNAVAILABLE), (True, "Servidor", NOT_OBSERVED)],
+)
+def test_banner_ssh_ausente_ou_sem_versao(reachable, software, status):
+    fp = fingerprint_ssh_banner(reachable=reachable, software=software, comments=None, rules=RULES)
+    assert fp.status == status and fp.products == ()
+
+
+def test_banner_ssh_hostil_nao_inventa_suporte():
+    fp = fingerprint_ssh_banner(
+        reachable=True, software="OpenSSH_99<script>", comments="\x1b[2J", rules=RULES
+    )
+    assert all(p.support != UNSUPPORTED or p.version for p in fp.products)
+    assert "distribuição" not in (fp.products[0].note or "")

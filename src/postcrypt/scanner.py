@@ -1,8 +1,12 @@
 """Orquestra a varredura: só contata os alvos do escopo, em paralelo.
 
-Por alvo: sonda TLS, classificação e fingerprint de versão. O pedido HTTP do
-fingerprint só sai quando o alvo tem ``http_fingerprint: true`` e respondeu
-como TLS; quem faz o pedido é um adaptador injetável (``fetch_banner``).
+Por alvo, conforme o ``protocol`` do escopo:
+
+- TLS: sonda TLS, classificação e fingerprint de versão. O pedido HTTP do
+  fingerprint só sai quando o alvo tem ``http_fingerprint: true`` e respondeu
+  como TLS; quem faz o pedido é um adaptador injetável (``fetch_banner``).
+- SSH: sonda SSH (banner + lista de algoritmos), classificação SSH e
+  fingerprint pelo banner que a sonda já leu (decisão 0003).
 """
 
 from __future__ import annotations
@@ -17,13 +21,25 @@ from datetime import UTC, datetime
 
 from postcrypt import __version__
 from postcrypt.classify import Assessment, classify
-from postcrypt.fingerprint import Rules, ServiceFingerprint, fingerprint_target
+from postcrypt.classify_ssh import classify_ssh
+from postcrypt.fingerprint import (
+    Rules,
+    ServiceFingerprint,
+    fingerprint_ssh_banner,
+    fingerprint_target,
+)
 from postcrypt.http_banner.parse import HTTPHeadError, HTTPResponseHead, parse_response_head
 from postcrypt.http_banner.probe import BannerRequest, BannerUnavailable, fetch_banner
 from postcrypt.scope import Scope, Target
+from postcrypt.ssh.probe import SSHObservation, SSHProbe
 from postcrypt.tls.probe import ProbeConnectionError, TLSObservation, TLSProbe
 
 BannerFetcher = Callable[[BannerRequest], bytes]
+SSHProber = Callable[[str, int, float], SSHObservation]
+
+
+def probe_ssh(host: str, port: int, timeout: float) -> SSHObservation:
+    return SSHProbe(host, port, timeout=timeout).run()
 
 
 @dataclass
@@ -35,6 +51,7 @@ class TargetResult:
     assessment: Assessment
     error: str | None = None
     fingerprint: ServiceFingerprint | None = None
+    ssh: SSHObservation | None = None  # só em alvos com protocol: ssh
 
     def to_dict(self) -> dict:
         return {
@@ -43,6 +60,7 @@ class TargetResult:
             "duration_ms": self.duration_ms,
             "error": self.error,
             "tls": self.observation.to_dict() if self.observation else None,
+            "ssh": self.ssh.to_dict() if self.ssh else None,
             "assessment": self.assessment.to_dict(),
             "fingerprint": self.fingerprint.to_dict() if self.fingerprint else None,
         }
@@ -110,9 +128,42 @@ def observe_fingerprint(
     )
 
 
-def scan_target(
-    target: Target, rules: dict, timeout: float, *, fetch: BannerFetcher = fetch_banner
+def scan_ssh_target(
+    target: Target, rules: Rules, timeout: float, *, probe: SSHProber = probe_ssh
 ) -> TargetResult:
+    start = time.monotonic()
+    try:
+        obs = probe(target.host, target.port, timeout)
+    except ProbeConnectionError as exc:
+        elapsed = int((time.monotonic() - start) * 1000)
+        return TargetResult(
+            target,
+            False,
+            elapsed,
+            None,
+            classify_ssh(None, rules, error=str(exc)),
+            str(exc),
+            fingerprint_ssh_banner(reachable=False, software=None, comments=None, rules=rules),
+        )
+    elapsed = int((time.monotonic() - start) * 1000)
+    fingerprint = fingerprint_ssh_banner(
+        reachable=not obs.not_ssh, software=obs.software, comments=obs.comments, rules=rules
+    )
+    return TargetResult(
+        target, True, elapsed, None, classify_ssh(obs, rules), fingerprint=fingerprint, ssh=obs
+    )
+
+
+def scan_target(
+    target: Target,
+    rules: dict,
+    timeout: float,
+    *,
+    fetch: BannerFetcher = fetch_banner,
+    ssh_probe: SSHProber = probe_ssh,
+) -> TargetResult:
+    if target.protocol == "ssh":
+        return scan_ssh_target(target, rules, timeout, probe=ssh_probe)
     start = time.monotonic()
     probe = TLSProbe(target.host, target.port, sni=target.sni, timeout=timeout)
     try:
@@ -141,12 +192,13 @@ def run_scan(
     workers: int = 8,
     on_result: Callable[[TargetResult], None] | None = None,
     fetch: BannerFetcher = fetch_banner,
+    ssh_probe: SSHProber = probe_ssh,
 ) -> ScanResult:
     started = datetime.now(UTC)
     ordered: dict[int, TargetResult] = {}
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
         futures = {
-            pool.submit(scan_target, t, rules, timeout, fetch=fetch): i
+            pool.submit(scan_target, t, rules, timeout, fetch=fetch, ssh_probe=ssh_probe): i
             for i, t in enumerate(scope.targets)
         }
         for future, index in futures.items():

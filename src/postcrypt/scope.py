@@ -4,6 +4,9 @@ O Post-Crypt nunca descobre alvos sozinho. Cada serviço precisa estar listado
 com host e porta explícitos, e o arquivo precisa dizer quem autorizou a
 varredura e quando. Faixas de IP e curingas são recusados de propósito.
 
+``protocol`` é ``tls`` (padrão) ou ``ssh`` (decisão 0003). Num alvo SSH não há
+nome no certificado (``sni``) nem pedido HTTP (``http_fingerprint``).
+
 ``http_fingerprint`` é uma autorização à parte, alvo a alvo (decisão 0002):
 só com ``true`` a ferramenta manda o único pedido HTTP mínimo que identifica
 a versão do software. Sem o campo, o alvo é varrido só no TLS, como antes.
@@ -20,7 +23,7 @@ from typing import cast
 
 import yaml
 
-PROTOCOLS = ("tls",)  # "ssh" chega no incremento I1
+PROTOCOLS = ("tls", "ssh")
 OWNERS = ("self", "third_party")
 _HOSTNAME = re.compile(r"^(?=.{1,253}$)([a-zA-Z0-9_]([a-zA-Z0-9_-]{0,61}[a-zA-Z0-9])?\.?)+$")
 
@@ -94,12 +97,18 @@ def _parse_target(raw: object, index: int) -> Target:
     if owner not in OWNERS:
         raise ScopeError(f"{where}: owner deve ser 'self' ou 'third_party'")
     sni = raw.get("sni")
-    if sni is None:
+    http_fingerprint: object = cast("dict[str, object]", raw).get("http_fingerprint", False)
+    if protocol == "ssh":
+        # Campos que só fazem sentido em TLS são recusados, não ignorados em silêncio.
+        if sni is not None:
+            raise ScopeError(f"{where}: sni só vale para protocol: tls")
+        if http_fingerprint is not False:
+            raise ScopeError(f"{where}: http_fingerprint só vale para protocol: tls")
+    elif sni is None:
         try:
             ipaddress.ip_address(host)
         except ValueError:
             sni = host
-    http_fingerprint: object = cast("dict[str, object]", raw).get("http_fingerprint", False)
     if not isinstance(http_fingerprint, bool):
         # Só booleano de verdade: "sim", 1 ou "true" entre aspas não autorizam nada.
         raise ScopeError(f"{where}: http_fingerprint deve ser true ou false, sem aspas")

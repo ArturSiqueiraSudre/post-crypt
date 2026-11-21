@@ -44,7 +44,7 @@ def scan(
         ),
     ] = False,
 ) -> None:
-    """Varre os serviços TLS listados no arquivo de escopo."""
+    """Varre os serviços TLS e SSH listados no arquivo de escopo."""
     try:
         scope = load_scope(scope_file)
         rules = load_rules(rules_file)

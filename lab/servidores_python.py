@@ -14,6 +14,12 @@ um cabeçalho Server conhecido de antemão, que é o gabarito em
 lab/gabarito-fingerprint.yaml. Os outros só fazem o handshake e fecham, como
 um serviço TLS que não fala HTTP. No Docker, o nginx responde HTTP em todas
 as portas com a versão real da imagem: lá só vale o gabarito de TLS e rede.
+
+SSH (Estágio 3): SSH_SERVICES imita servidores SSH. Cada um manda a linha de
+identificação e o KEXINIT de um OpenSSH real (listas copiadas da
+configuração padrão), espera o cliente e fecha: nada de troca de chave nem
+login, como a sonda. No Docker, os mesmos dois casos rodam num OpenSSH de
+verdade (lab/ssh/).
 """
 
 from __future__ import annotations
@@ -21,6 +27,7 @@ from __future__ import annotations
 import argparse
 import socket
 import ssl
+import struct
 import sys
 import threading
 import time
@@ -47,6 +54,71 @@ BANNERS = {
     "tls-desconhecido": "Caddy/2.8.4",  # produto sem regra: registrado, nunca avaliado
 }
 MAX_REQUEST = 8192
+
+# serviço SSH -> (porta, identificação, listas do KEXINIT)
+SSH_HIBRIDO_KEX = [
+    "mlkem768x25519-sha256",
+    "sntrup761x25519-sha512",
+    "sntrup761x25519-sha512@openssh.com",
+    "curve25519-sha256",
+    "curve25519-sha256@libssh.org",
+    "ecdh-sha2-nistp256",
+    "ecdh-sha2-nistp384",
+    "ecdh-sha2-nistp521",
+    "ext-info-s",
+    "kex-strict-s-v00@openssh.com",
+]
+SSH_CLASSICO_KEX = [
+    "curve25519-sha256",
+    "ecdh-sha2-nistp256",
+    "diffie-hellman-group14-sha1",
+    "kex-strict-s-v00@openssh.com",
+]
+SSH_SERVICES = {
+    "ssh-hibrido": (
+        8447,
+        "SSH-2.0-OpenSSH_10.6",
+        {
+            "kex": SSH_HIBRIDO_KEX,
+            "host_key": ["rsa-sha2-512", "rsa-sha2-256", "ecdsa-sha2-nistp256", "ssh-ed25519"],
+            "ciphers": [
+                "chacha20-poly1305@openssh.com",
+                "aes128-gcm@openssh.com",
+                "aes256-gcm@openssh.com",
+                "aes128-ctr",
+                "aes192-ctr",
+                "aes256-ctr",
+            ],
+        },
+    ),
+    "ssh-classico": (
+        8448,
+        "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.13",
+        {
+            "kex": SSH_CLASSICO_KEX,
+            "host_key": ["ssh-rsa", "rsa-sha2-512", "ssh-ed25519"],
+            "ciphers": ["aes128-ctr", "aes256-ctr", "aes128-cbc"],
+        },
+    ),
+}
+SSH_MACS = ["hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com", "hmac-sha2-256"]
+
+
+def kexinit_packet(lists: dict[str, list[str]]) -> bytes:
+    """KEXINIT sem cifra (RFC 4253, 6 e 7.1), montado aqui, sem usar o código da sonda."""
+    ciphers, macs = lists["ciphers"], SSH_MACS
+    name_lists = [
+        lists["kex"], lists["host_key"], ciphers, ciphers, macs, macs,
+        ["none", "zlib@openssh.com"], ["none", "zlib@openssh.com"], [], [],
+    ]  # fmt: skip
+    payload = bytes([20]) + bytes(16)
+    for names in name_lists:
+        text = ",".join(names).encode("ascii")
+        payload += struct.pack("!I", len(text)) + text
+    payload += b"\x00" + struct.pack("!I", 0)
+    padding = 8 - ((5 + len(payload)) % 8)
+    padding += 8 if padding < 4 else 0
+    return struct.pack("!IB", 1 + len(payload) + padding, padding) + payload + bytes(padding)
 
 
 def make_context(mode: str, name: str) -> ssl.SSLContext:
@@ -101,6 +173,33 @@ def _handle(conn: socket.socket, ctx: ssl.SSLContext, banner: str | None = None)
         conn.close()
 
 
+def serve_ssh(port: int, identification: str, packet: bytes, stop: threading.Event) -> None:
+    with socket.create_server(("127.0.0.1", port)) as srv:
+        srv.settimeout(0.3)
+        while not stop.is_set():
+            try:
+                conn, _ = srv.accept()
+            except TimeoutError:
+                continue
+            threading.Thread(
+                target=_handle_ssh, args=(conn, identification, packet), daemon=True
+            ).start()
+
+
+def _handle_ssh(conn: socket.socket, identification: str, packet: bytes) -> None:
+    conn.settimeout(3)
+    with suppress(OSError), conn:
+        conn.sendall(identification.encode("ascii") + b"\r\n")
+        received = b""
+        while b"\n" not in received and len(received) < 256:
+            chunk = conn.recv(256)
+            if not chunk:
+                return
+            received += chunk
+        conn.sendall(packet)
+        conn.recv(1)  # espera o cliente fechar: nada de troca de chave
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -127,6 +226,15 @@ def main(argv: list[str] | None = None) -> int:
         threads.append(t)
         extra = f", Server: {BANNERS[name]}" if name in BANNERS else ""
         print(f"{name:13} 127.0.0.1:{port}  ({mode}{extra})")
+    for name, (port, identification, lists) in SSH_SERVICES.items():
+        t = threading.Thread(
+            target=serve_ssh,
+            args=(port, identification, kexinit_packet(lists), stop),
+            daemon=True,
+        )
+        t.start()
+        threads.append(t)
+        print(f"{name:13} 127.0.0.1:{port}  (SSH, {identification})")
     print(f"Laboratório no ar com {ssl.OPENSSL_VERSION}. Porta 8449 fica fechada de propósito.")
     sys.stdout.flush()
 

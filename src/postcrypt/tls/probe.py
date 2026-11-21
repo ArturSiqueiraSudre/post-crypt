@@ -15,6 +15,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 
 from postcrypt.certs import CertificateInfo, parse_certificate
+from postcrypt.probe_errors import ProbeConnectionError
 from postcrypt.tls.constants import (
     CLASSICAL_GROUPS,
     PQC_GROUPS,
@@ -35,11 +36,6 @@ from postcrypt.tls.messages import (
     parse_certificate_tls12,
     parse_server_hello,
 )
-
-
-class ProbeConnectionError(OSError):
-    """Não foi possível conversar com o alvo (porta fechada, timeout, reset)."""
-
 
 Clock = Callable[[], float]
 Connect = Callable[[tuple[str, int], float], socket.socket]

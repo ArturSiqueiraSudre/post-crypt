@@ -110,8 +110,27 @@ def test_varredura_pelo_painel_classifica_os_alvos(client, tmp_path):
     assert [r["assessment"]["status"] for r in resultado["results"]] == [HNDL, UNREACHABLE]
 
 
-def test_info_anuncia_o_recurso_de_fingerprint(client):
-    assert client.get("/api/info").json()["recursos"] == {"http_fingerprint": True}
+def test_info_anuncia_os_recursos(client):
+    assert client.get("/api/info").json()["recursos"] == {"http_fingerprint": True, "ssh": True}
+
+
+def test_escopo_com_ssh_ida_e_volta(client):
+    alvos = (
+        {"host": "bastion.exemplo.com.br", "port": 22, "protocol": "ssh"},
+        {"host": "www.exemplo.com.br", "port": 443},
+    )
+    conferido = client.post("/api/escopo/validar", json=escopo(*alvos)).json()
+    assert [t["protocol"] for t in conferido["targets"]] == ["ssh", "tls"]
+    assert conferido["targets"][0]["sni"] is None
+    texto = client.post("/api/escopo/yaml", json=escopo(*alvos)).json()["texto"]
+    assert texto.count("protocol: ssh") == 1 and "protocol: tls" not in texto
+    assert [t.protocol for t in parse_scope(yaml.safe_load(texto)).targets] == ["ssh", "tls"]
+
+
+def test_alvo_ssh_com_sni_do_formulario_e_recusado(client):
+    alvo = {"host": "bastion.exemplo.com.br", "port": 22, "protocol": "ssh", "sni": "x.exemplo"}
+    resp = client.post("/api/escopo/validar", json=escopo(alvo))
+    assert resp.status_code == 422 and "sni" in resp.json()["erro"]
 
 
 def test_escopo_com_fingerprint_ida_e_volta(client):

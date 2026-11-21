@@ -14,6 +14,12 @@ tls-legado:
 tls-desconhecido:                         # banner de produto sem regra: nunca é chute
   status: observed
   products: { Caddy: ["2.8.4", unknown] }
+ssh-hibrido:                              # banner SSH: lido sem pedido extra (decisão 0003)
+  status: observed
+  products: { OpenSSH: ["10.6", supported] }
+ssh-classico:
+  status: observed
+  products: { OpenSSH: ["8.9p1", unsupported] }
 tls-vencendo: { status: not_observed }    # autorizado, mas o serviço não fala HTTP
 tls-vencido: { status: not_authorized }   # sem http_fingerprint no escopo
 desligado: { status: unavailable }

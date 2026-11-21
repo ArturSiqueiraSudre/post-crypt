@@ -41,7 +41,7 @@ def test_authorization_is_mandatory():
     [
         ({"host": "a.example", "port": 70000}, "porta"),
         ({"host": "a.example"}, "obrigatórios"),
-        ({"host": "a.example", "port": 22, "protocol": "ssh"}, "não suportado"),
+        ({"host": "a.example", "port": 500, "protocol": "ipsec"}, "não suportado"),
         ({"host": "a.example", "port": 443, "owner": "vendor"}, "owner"),
         ({"host": "a.example", "port": 443, "extra": 1}, "desconhecidos"),
     ],
@@ -126,3 +126,51 @@ def test_lab_scope_autoriza_fingerprint_so_onde_foi_marcado():
         "tls-vencendo",
         "tls-desconhecido",
     }
+
+
+# ---------- protocol: ssh (decisão 0003) ----------
+
+
+def test_alvo_ssh_sem_sni_nem_fingerprint_http():
+    (target,) = parse_scope(
+        {
+            "authorization": AUTH,
+            "targets": [{"host": "bastion.example", "port": 22, "protocol": "SSH"}],
+        }
+    ).targets
+    assert target.protocol == "ssh" and target.sni is None and target.http_fingerprint is False
+
+
+@pytest.mark.parametrize(
+    ("extra", "trecho"),
+    [
+        ({"sni": "x.example"}, "sni só vale para protocol: tls"),
+        ({"http_fingerprint": True}, "http_fingerprint só vale para protocol: tls"),
+        ({"http_fingerprint": "true"}, "http_fingerprint só vale para protocol: tls"),
+    ],
+)
+def test_campos_de_tls_num_alvo_ssh_sao_recusados(extra, trecho):
+    with pytest.raises(ScopeError, match=trecho):
+        parse_scope(
+            {
+                "authorization": AUTH,
+                "targets": [{"host": "bastion.example", "port": 22, "protocol": "ssh", **extra}],
+            }
+        )
+
+
+@pytest.mark.parametrize("protocolo", ["ssh1", "telnet", "", "ssh; rm -rf /", 22, ["ssh"]])
+def test_protocolo_fora_da_lista_e_recusado(protocolo):
+    with pytest.raises(ScopeError, match="não suportado"):
+        parse_scope(
+            {
+                "authorization": AUTH,
+                "targets": [{"host": "a.example", "port": 22, "protocol": protocolo}],
+            }
+        )
+
+
+def test_escopo_do_laboratorio_tem_os_dois_servicos_ssh():
+    path = Path(__file__).resolve().parents[2] / "lab" / "escopo-lab.yaml"
+    ssh = {t.label: t.port for t in load_scope(path).targets if t.protocol == "ssh"}
+    assert ssh == {"ssh-hibrido": 8447, "ssh-classico": 8448}

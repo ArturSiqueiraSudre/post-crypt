@@ -49,6 +49,10 @@ def _sym_cell(r: TargetResult) -> str:
 
 
 def _cert_cell(r: TargetResult) -> tuple[str, str]:
+    if r.ssh is not None:
+        # SSH não tem certificado com validade: mostra os tipos de chave do servidor.
+        keys = r.ssh.host_key
+        return (", ".join(keys[:2]) + (" …" if len(keys) > 2 else "") if keys else "—"), "—"
     obs = r.observation
     if not obs or not obs.certificates:
         return "—", "—"
@@ -76,7 +80,7 @@ def render_table(scan: ScanResult, console: Console) -> None:
     table.add_column("Status")
     table.add_column("Troca de chave")
     table.add_column("Cifra simétrica")
-    table.add_column("Certificado")
+    table.add_column("Certificado / chave")
     table.add_column("Vence em", justify="right")
     table.add_column("Software")
     for r in scan.results:
