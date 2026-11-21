@@ -3,7 +3,10 @@
 #   python lab/gerar_certificados.py
 #   docker compose -f lab/docker-compose.yml up -d
 #   postcrypt scan lab/escopo-lab.yaml
-#   python lab/verificar_gabarito.py resultado.json
+#   python lab/verificar_gabarito.py resultado.json --sem-fingerprint
+#
+# O gabarito de fingerprint (Estágio 2) vale só para o laboratório em Python:
+# aqui o nginx responde HTTP em todas as portas com a versão real da imagem.
 #
 # A porta 8449 fica de propósito sem serviço (caso "desligado").
 
@@ -14,4 +17,14 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./certs:/etc/nginx/certs:ro
     ports:
-      - "127.0.0.1:8441-8445:8441-8445"
+      - "127.0.0.1:8441-8446:8441-8446"
+
+  # Estágio 3: OpenSSH de verdade, dois casos (lab/ssh/). Ninguém consegue entrar.
+  ssh:
+    image: alpine:3.22   # OpenSSH 10.x: troca híbrida mlkem768x25519 por padrão
+    command: ["sh", "/lab/ssh/iniciar.sh"]
+    volumes:
+      - ./ssh:/lab/ssh:ro
+    ports:
+      - "127.0.0.1:8447:2222"
+      - "127.0.0.1:8448:2223"

@@ -4,4 +4,7 @@ tls-classico: { status: hndl_vulnerable }
 tls-legado:   { status: hndl_vulnerable, findings: [RSA_KEY_TRANSPORT, NO_TLS13] }
 tls-vencendo: { status: pqc, findings: [CERT_EXPIRING] }
 tls-vencido:  { status: pqc, findings: [CERT_EXPIRED] }
+tls-desconhecido: { status: pqc }
+ssh-hibrido:  { status: pqc, findings: [SSH_HOST_KEY_QUANTUM_VULNERABLE] }
+ssh-classico: { status: hndl_vulnerable, findings: [KX_CLASSICAL_ONLY, SSH_WEAK_KEX, SSH_WEAK_CIPHER, SSH_WEAK_HOST_KEY] }
 desligado:    { status: unreachable }

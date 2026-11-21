@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import socket
 import ssl
+import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 
 from postcrypt.certs import CertificateInfo, parse_certificate
+from postcrypt.probe_errors import ProbeConnectionError
 from postcrypt.tls.constants import (
     CLASSICAL_GROUPS,
     PQC_GROUPS,
@@ -34,9 +37,36 @@ from postcrypt.tls.messages import (
     parse_server_hello,
 )
 
+Clock = Callable[[], float]
+Connect = Callable[[tuple[str, int], float], socket.socket]
 
-class ProbeConnectionError(OSError):
-    """Não foi possível conversar com o alvo (porta fechada, timeout, reset)."""
+
+def _connect(address: tuple[str, int], timeout: float) -> socket.socket:
+    return socket.create_connection(address, timeout=timeout)
+
+
+@dataclass(frozen=True)
+class ServerHelloShape:
+    """Forma da resposta do servidor a um ClientHello fixo da sonda.
+
+    Versão, suíte e ordem das extensões dependem da biblioteca TLS do
+    servidor e da configuração dele. O fingerprint usa isso como sinal de
+    pilha, no estilo JA4S. Só é comparável entre varreduras do Post-Crypt,
+    porque o ClientHello que provoca a resposta é sempre o mesmo.
+    """
+
+    kind: str  # "server_hello" (TLS 1.2) ou "hello_retry_request" (TLS 1.3)
+    version: int
+    cipher_suite: int
+    extensions: tuple[int, ...]
+
+    def to_dict(self) -> dict:
+        return {
+            "kind": self.kind,
+            "version": f"0x{self.version:04x}",
+            "cipher_suite": f"0x{self.cipher_suite:04x}",
+            "extensions": [f"0x{e:04x}" for e in self.extensions],
+        }
 
 
 @dataclass
@@ -54,24 +84,44 @@ class TLSObservation:
     not_tls: bool = False  # a porta respondeu, mas não como TLS
     certificates: list[CertificateInfo] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    server_hello: ServerHelloShape | None = None  # sinal de pilha para o fingerprint
 
     def to_dict(self) -> dict:
         data = asdict(self)
         data["certificates"] = [c.to_dict() for c in self.certificates]
+        data["server_hello"] = self.server_hello.to_dict() if self.server_hello else None
         return data
 
 
+def _shape(resp: ServerResponse) -> ServerHelloShape | None:
+    if resp.version is None or resp.cipher_suite is None:
+        return None
+    return ServerHelloShape(resp.kind, resp.version, resp.cipher_suite, resp.extensions)
+
+
 def exchange(
-    host: str, port: int, hello: bytes, *, timeout: float, want_certificates: bool = False
+    host: str,
+    port: int,
+    hello: bytes,
+    *,
+    timeout: float,
+    want_certificates: bool = False,
+    clock: Clock = time.monotonic,
+    connect: Connect = _connect,
 ) -> ServerResponse:
     """Envia um ClientHello e lê a resposta até ter o que precisa.
 
     Só levanta ``ProbeConnectionError`` quando nem a conexão TCP abre. Depois de
     conectado, silêncio, reset ou resposta que não é TLS viram um
     ``ServerResponse`` com ``kind`` ``no_response`` ou ``not_tls``.
+
+    ``timeout`` é o prazo da troca inteira (conexão e leitura), não de cada
+    leitura: um servidor que goteja a resposta um byte por vez não segura a
+    sonda além dele. Prazo esgotado conta como "sem resposta".
     """
+    deadline = clock() + timeout
     try:
-        sock = socket.create_connection((host, port), timeout=timeout)
+        sock = connect((host, port), timeout)
     except OSError as exc:
         raise ProbeConnectionError(str(exc) or exc.__class__.__name__) from exc
 
@@ -81,6 +131,10 @@ def exchange(
             sock.sendall(hello)
             reader = HandshakeReader()
             while True:
+                remaining = deadline - clock()
+                if remaining <= 0:
+                    break  # prazo da troca esgotado
+                sock.settimeout(remaining)
                 data = sock.recv(16384)
                 if not data:
                     break
@@ -161,14 +215,23 @@ class TLSProbe:
         # Inventário, não confiança: a cadeia é registrada mesmo se for inválida.
         ctx.verify_mode = ssl.CERT_NONE  # nosec B501
         server_hostname = self.sni if self.sni and not _is_ip(self.sni) else None
-        with (
-            socket.create_connection((self.host, self.port), timeout=self.timeout) as raw,
-            ctx.wrap_socket(raw, server_hostname=server_hostname) as tls,
-        ):
-            if hasattr(tls, "get_unverified_chain"):  # Python 3.13+
-                return [bytes(c) for c in tls.get_unverified_chain() or []]
-            leaf = tls.getpeercert(binary_form=True)
-            return [leaf] if leaf else []
+        deadline = time.monotonic() + self.timeout
+        with socket.create_connection((self.host, self.port), timeout=self.timeout) as raw:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("prazo esgotado antes do handshake")
+            # O handshake só recebe o que sobrou do prazo (o CPython aplica o timeout
+            # do socket ao handshake inteiro, então gotejar o handshake não estica).
+            raw.settimeout(remaining)
+            with ctx.wrap_socket(raw, server_hostname=server_hostname) as tls:
+                return self._chain_of(tls)
+
+    @staticmethod
+    def _chain_of(tls: ssl.SSLSocket) -> list[bytes]:
+        if hasattr(tls, "get_unverified_chain"):  # Python 3.13+
+            return [bytes(c) for c in tls.get_unverified_chain() or []]
+        leaf = tls.getpeercert(binary_form=True)
+        return [leaf] if leaf else []
 
     # --- Execução completa ---------------------------------------------------
 
@@ -179,6 +242,7 @@ class TLSProbe:
         classical = self.tls13_select(CLASSICAL_GROUPS)
         if classical is not None:
             obs.tls13 = True
+            obs.server_hello = _shape(classical)
             obs.classical_group = group_name(classical.selected_group or 0)
             name, _, symmetric = suite_info(classical.cipher_suite or 0)
             obs.tls13_cipher_suite, obs.tls13_symmetric = name, symmetric
@@ -187,6 +251,7 @@ class TLSProbe:
         pqc = self.tls13_select(PQC_GROUPS)
         if pqc is not None:
             obs.tls13 = True
+            obs.server_hello = obs.server_hello or _shape(pqc)
             if obs.tls13_cipher_suite is None:
                 name, _, symmetric = suite_info(pqc.cipher_suite or 0)
                 obs.tls13_cipher_suite, obs.tls13_symmetric = name, symmetric
@@ -199,6 +264,8 @@ class TLSProbe:
         tls12 = self.tls12_hello(tuple(TLS12_SUITES))
         if tls12 is not None:
             obs.tls12 = True
+            # ServerHello completo do TLS 1.2 diz mais da pilha que o HelloRetryRequest.
+            obs.server_hello = _shape(tls12) or obs.server_hello
             name, kx, symmetric = suite_info(tls12.cipher_suite or 0)
             obs.tls12_cipher_suite, obs.tls12_key_exchange, obs.tls12_symmetric = (
                 name,

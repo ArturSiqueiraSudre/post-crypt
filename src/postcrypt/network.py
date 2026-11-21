@@ -1,13 +1,15 @@
 """Correlação de rede: o que só aparece ao comparar os alvos entre si.
 
 O classificador avalia um alvo por vez. Este módulo lê a varredura inteira e
-responde quatro perguntas que nenhum alvo isolado responde:
+responde cinco perguntas que nenhum alvo isolado responde:
 
 - uma mesma autoridade certificadora, de assinatura clássica, sustenta vários
   alvos (ponto único de falha)?
 - o mesmo certificado está em mais de um alvo?
 - que proporção dos ativos próprios está exposta a Harvest Now, Decrypt Later?
 - quanto do escopo ficou sem visibilidade (sem resposta ou de terceiros)?
+- a mesma versão de software, já sem suporte do fabricante, roda em vários
+  alvos (fingerprint do Estágio 2)?
 
 É lógica pura: não abre conexão, não lê disco e não coleta nada novo. Só usa
 o que a varredura já observou e as mesmas regras em YAML do classificador.
@@ -22,6 +24,7 @@ from typing import TYPE_CHECKING
 
 from postcrypt.certs import CertificateInfo
 from postcrypt.classify import HNDL, PQC, SEVERITY_ORDER, UNREACHABLE
+from postcrypt.fingerprint import HEADER_LABELS, UNSUPPORTED, ProductVersion
 
 if TYPE_CHECKING:
     from postcrypt.scanner import ScanResult, TargetResult
@@ -68,6 +71,12 @@ ACTIONS = {
     "NET_VISIBILITY_GAP": (
         "Confira endereço e porta dos serviços que não responderam e peça ao fornecedor a "
         "postura criptográfica dos serviços dele."
+    ),
+    "NET_OUTDATED_VERSION": (
+        "Atualize esse software para uma versão com suporte em todos os serviços listados, "
+        "começando pelos que carregam dados sensíveis. Se ele vier de uma distribuição "
+        "(Ubuntu, Debian, RHEL), confirme com quem mantém o sistema se as correções chegam "
+        "sem mudar o número da versão."
     ),
 }
 
@@ -337,6 +346,54 @@ def _visibility_gap(results: list[TargetResult], rules: dict) -> list[NetworkFin
     ]
 
 
+def _unsupported_products(result: TargetResult) -> list[ProductVersion]:
+    fp = result.fingerprint
+    if fp is None:
+        return []
+    return [p for p in fp.products if p.support == UNSUPPORTED and p.version]
+
+
+def _outdated_version(results: list[TargetResult]) -> list[NetworkFinding]:
+    """A mesma versão sem suporte, declarada pelo próprio servidor, em mais de um alvo."""
+    groups: dict[tuple[str, str], list[tuple[TargetResult, ProductVersion]]] = {}
+    for result in results:
+        seen: set[tuple[str, str]] = set()
+        for product in _unsupported_products(result):
+            key = (product.key or product.name.lower(), str(product.version))
+            if key not in seen:  # Server e X-Powered-By repetindo o mesmo produto contam uma vez
+                seen.add(key)
+                groups.setdefault(key, []).append((result, product))
+
+    findings: list[NetworkFinding] = []
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        product = members[0][1]
+        label = f"{product.name} {product.version}"
+        count = _plural(len(members), "serviço", "serviços")
+        sources = sorted({HEADER_LABELS.get(p.source, p.source) for _, p in members})
+        supported = f" (com suporte: {product.supported})" if product.supported else ""
+        findings.append(
+            _finding(
+                "NET_OUTDATED_VERSION",
+                "medium",
+                f"{label}, sem suporte do fabricante, em {count}",
+                f"{count.capitalize()} rodam {label}, versão "
+                f"que o fabricante não corrige mais{supported}. Uma falha nova nessa versão "
+                "atinge todos de uma vez. A versão foi declarada pelo próprio servidor "
+                f"({' e '.join(sources)}).",
+                [asset_id(r) for r, _ in members],
+                {
+                    "product": product.name,
+                    "version": product.version,
+                    "supported": product.supported,
+                    "source": sources,
+                },
+            )
+        )
+    return findings
+
+
 def analyze_network(scan: ScanResult, rules: dict) -> NetworkAssessment:
     """Relaciona os alvos de uma varredura. Com menos de dois alvos não há o que relacionar."""
     results = list(scan.results)
@@ -347,6 +404,7 @@ def analyze_network(scan: ScanResult, rules: dict) -> NetworkAssessment:
         *_duplicate_leaf(results),
         *_hndl_exposure(results, rules),
         *_visibility_gap(results, rules),
+        *_outdated_version(results),
     ]
     findings.sort(key=lambda f: (-f.priority, SEVERITY_ORDER.index(f.severity), f.id, f.assets))
     return NetworkAssessment(total_targets=len(results), findings=tuple(findings))

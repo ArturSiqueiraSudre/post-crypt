@@ -16,6 +16,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from postcrypt.classify import HNDL, PQC, REVIEW, STATUS_LABELS, UNREACHABLE
+from postcrypt.fingerprint import NOT_AUTHORIZED, UNSUPPORTED
 from postcrypt.network import NetworkAssessment, asset_id
 from postcrypt.scanner import ScanResult, TargetResult
 
@@ -48,6 +49,10 @@ def _sym_cell(r: TargetResult) -> str:
 
 
 def _cert_cell(r: TargetResult) -> tuple[str, str]:
+    if r.ssh is not None:
+        # SSH não tem certificado com validade: mostra os tipos de chave do servidor.
+        keys = r.ssh.host_key
+        return (", ".join(keys[:2]) + (" …" if len(keys) > 2 else "") if keys else "—"), "—"
     obs = r.observation
     if not obs or not obs.certificates:
         return "—", "—"
@@ -57,14 +62,27 @@ def _cert_cell(r: TargetResult) -> tuple[str, str]:
     return leaf.public_key_detail, expiry
 
 
+def _software_cell(r: TargetResult) -> str:
+    """Produtos declarados pelo servidor, marcando os que estão sem suporte."""
+    fp = r.fingerprint
+    if fp is None or not fp.products:
+        return "não autorizado" if fp is not None and fp.status == NOT_AUTHORIZED else "—"
+    parts: list[str] = []
+    for p in fp.products:
+        text = f"{p.name} {p.version}" if p.version else p.name
+        parts.append(f"{text} (sem suporte)" if p.support == UNSUPPORTED else text)
+    return "\n".join(parts)
+
+
 def render_table(scan: ScanResult, console: Console) -> None:
     table = Table(title="Post-Crypt — prontidão pós-quântica", title_justify="left")
     table.add_column("Alvo")
     table.add_column("Status")
     table.add_column("Troca de chave")
     table.add_column("Cifra simétrica")
-    table.add_column("Certificado")
+    table.add_column("Certificado / chave")
     table.add_column("Vence em", justify="right")
+    table.add_column("Software")
     for r in scan.results:
         status = r.assessment.status
         cert, expiry = _cert_cell(r)
@@ -75,6 +93,7 @@ def render_table(scan: ScanResult, console: Console) -> None:
             _plain(_sym_cell(r)),
             _plain(cert),
             _plain(expiry),
+            "\n".join(_plain(line) for line in _software_cell(r).split("\n")),
         )
     console.print(table)
 

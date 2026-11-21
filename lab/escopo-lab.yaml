@@ -1,13 +1,18 @@
 # Escopo do laboratório (docker compose em lab/). Gabarito em lab/gabarito.yaml.
+# http_fingerprint: true autoriza o único pedido HEAD / do fingerprint de versão
+# (decisão 0002); gabarito em lab/gabarito-fingerprint.yaml.
 authorization:
   by: "Equipe Post-Crypt"
   date: 2026-10-17
   reference: "Laboratório local"
 
 targets:
-  - { host: 127.0.0.1, port: 8441, label: tls-hibrido, sni: tls-hibrido.lab }
-  - { host: 127.0.0.1, port: 8442, label: tls-classico, sni: tls-classico.lab }
-  - { host: 127.0.0.1, port: 8443, label: tls-legado, sni: tls-legado.lab }
-  - { host: 127.0.0.1, port: 8444, label: tls-vencendo, sni: tls-vencendo.lab }
+  - { host: 127.0.0.1, port: 8441, label: tls-hibrido, sni: tls-hibrido.lab, http_fingerprint: true }
+  - { host: 127.0.0.1, port: 8442, label: tls-classico, sni: tls-classico.lab, http_fingerprint: true }
+  - { host: 127.0.0.1, port: 8443, label: tls-legado, sni: tls-legado.lab, http_fingerprint: true }
+  - { host: 127.0.0.1, port: 8444, label: tls-vencendo, sni: tls-vencendo.lab, http_fingerprint: true }
   - { host: 127.0.0.1, port: 8445, label: tls-vencido, sni: tls-vencido.lab }
+  - { host: 127.0.0.1, port: 8446, label: tls-desconhecido, sni: tls-desconhecido.lab, http_fingerprint: true }
+  - { host: 127.0.0.1, port: 8447, label: ssh-hibrido, protocol: ssh }
+  - { host: 127.0.0.1, port: 8448, label: ssh-classico, protocol: ssh }
   - { host: 127.0.0.1, port: 8449, label: desligado }

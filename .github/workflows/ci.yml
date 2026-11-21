@@ -86,13 +86,19 @@ jobs:
             (echo > /dev/tcp/127.0.0.1/8445) 2>/dev/null && break
             sleep 1
           done
+          # A porta do Docker abre antes do sshd: espera o banner SSH de verdade.
+          for i in $(seq 1 90); do
+            timeout 2 bash -c 'head -c 4 < /dev/tcp/127.0.0.1/8448' 2>/dev/null | grep -q SSH- && break
+            sleep 1
+          done
           docker compose -f lab/docker-compose.yml exec -T tls nginx -V 2>&1 | grep -i openssl || true
 
       - name: Varredura
         run: .venv/bin/postcrypt scan lab/escopo-lab.yaml --json resultado.json
 
       - name: Confere o gabarito (CA2)
-        run: .venv/bin/python lab/verificar_gabarito.py resultado.json
+        # nginx responde HTTP em todas as portas: o gabarito de fingerprint é do lab em Python
+        run: .venv/bin/python lab/verificar_gabarito.py resultado.json --sem-fingerprint
 
       - name: Logs do nginx
         if: failure()

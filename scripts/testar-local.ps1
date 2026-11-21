@@ -117,6 +117,21 @@ Etapa "bandit" "`"$Py`" -m bandit -r src -c pyproject.toml" | Out-Null
 Etapa "pip-audit" "`"$Py`" -m pip_audit --skip-editable" -Opcional | Out-Null
 
 # ---------------------------------------------------------------- laboratório
+# A porta publicada pelo Docker abre antes do sshd: só vale quando chega o banner "SSH-".
+function Esperar-BannerSSH([int]$porta, [int]$segundos = 120) {
+    foreach ($i in 1..$segundos) {
+        $c = New-Object Net.Sockets.TcpClient
+        try {
+            if ($c.ConnectAsync("127.0.0.1", $porta).Wait(500) -and $c.Connected) {
+                $s = $c.GetStream(); $s.ReadTimeout = 1000; $b = New-Object byte[] 4
+                if ($s.Read($b, 0, 4) -eq 4 -and [Text.Encoding]::ASCII.GetString($b) -eq "SSH-") { return $true }
+            }
+        } catch {} finally { $c.Close() }
+        Start-Sleep -Seconds 1
+    }
+    return $false
+}
+
 function Esperar-Porta([int]$porta, [int]$segundos = 30) {
     foreach ($i in 1..$segundos) {
         $c = New-Object Net.Sockets.TcpClient
@@ -128,9 +143,9 @@ function Esperar-Porta([int]$porta, [int]$segundos = 30) {
     return $false
 }
 
-function Conferir-Laboratorio {
+function Conferir-Laboratorio([string]$Extra = "") {
     Etapa "lab-varredura" "`"$Py`" -m postcrypt scan lab\escopo-lab.yaml --json resultado-testes\lab-resultado.json" | Out-Null
-    Etapa "lab-gabarito" "`"$Py`" lab\verificar_gabarito.py resultado-testes\lab-resultado.json" | Out-Null
+    Etapa "lab-gabarito" "`"$Py`" lab\verificar_gabarito.py resultado-testes\lab-resultado.json $Extra" | Out-Null
 }
 
 $modo = $Laboratorio
@@ -152,7 +167,9 @@ if ($modo -eq "nenhum") {
         if ($subiu -eq 0) {
             Registrar "Laboratório: docker (nginx)"
             Esperar-Porta 8445 | Out-Null
-            Conferir-Laboratorio
+            Esperar-BannerSSH 8448 | Out-Null   # OpenSSH do laboratório (instala no primeiro uso)
+            # nginx responde HTTP em todas as portas: o gabarito de fingerprint é do lab em Python
+            Conferir-Laboratorio "--sem-fingerprint"
             cmd.exe /d /c "docker compose -f lab\docker-compose.yml exec -T tls nginx -V > `"$Saida\lab-nginx-versao.log`" 2>&1"
             Etapa "lab-docker-desligar" "docker compose -f lab\docker-compose.yml down" -Opcional | Out-Null
         } elseif ($Laboratorio -eq "auto") {

@@ -5,7 +5,7 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\demo.ps1 -SemPausa   # sem esperar Enter (ensaio/CI)
 #
 # Cada passo mostra o comando antes de rodá-lo e espera Enter. O laboratório
-# sobe em Python nas portas 8441-8445 (8449 fica fechada) e é desligado no fim.
+# sobe em Python nas portas 8441-8448 (8449 fica fechada) e é desligado no fim.
 
 param([switch]$SemPausa)
 
@@ -70,7 +70,7 @@ if (-not (Esperar-Porta 8445)) {
 try {
     Write-Host ""
     Write-Host "  Post-Crypt — varredura local de prontidão pós-quântica" -ForegroundColor White
-    Write-Host "  Laboratório no ar: 5 serviços TLS em 127.0.0.1:8441-8445, porta 8449 fechada" -ForegroundColor DarkGray
+    Write-Host "  Laboratório no ar: 6 serviços TLS (8441-8446) e 2 SSH (8447-8448) em 127.0.0.1, porta 8449 fechada" -ForegroundColor DarkGray
     Pausa
 
     # 1 ------------------------------------------------------------- escopo

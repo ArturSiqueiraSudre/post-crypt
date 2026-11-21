@@ -17,7 +17,7 @@ import threading
 import time
 from pathlib import Path
 
-PORTAS = (8441, 8442, 8443, 8444, 8445)
+PORTAS = (8441, 8442, 8443, 8444, 8445, 8446, 8447, 8448)
 DURACAO_MAXIMA_S = 4 * 3600
 
 

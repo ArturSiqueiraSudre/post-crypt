@@ -216,20 +216,11 @@ input[aria-invalid="true"] { border-color: var(--laranja); background: var(--lar
 }
 .remover:hover { color: var(--laranja); }
 
-/* Versão do software (Estágio 2) e SSH (Estágio 3): só aparecem quando o servidor do
-   painel oferece o recurso. Item escondido não ocupa coluna, então há uma grade por combinação. */
+/* Versão do software (Estágio 2): só aparece quando o servidor do painel oferece o recurso */
 body:not(.com-fingerprint) .so-fingerprint { display: none; }
-body:not(.com-ssh) .so-ssh { display: none; }
 .com-fingerprint .cabecalho-alvos, .com-fingerprint .alvo {
   grid-template-columns: 1.1fr 1.6fr 0.55fr 0.9fr 1.1fr 8.5rem 5.5rem;
 }
-.com-ssh .cabecalho-alvos, .com-ssh .alvo {
-  grid-template-columns: 1.1fr 1.6fr 0.55fr 0.8fr 0.9fr 1.1fr 5.5rem;
-}
-.com-ssh.com-fingerprint .cabecalho-alvos, .com-ssh.com-fingerprint .alvo {
-  grid-template-columns: 1fr 1.4fr 0.55fr 0.8fr 0.85fr 1fr 8.5rem 5.5rem;
-}
-.alvo input:disabled { background: var(--fundo); color: var(--suave); }
 .campo-caixa .caixa {
   display: flex; align-items: center; gap: 8px; min-height: 42px;
   font-weight: 400; color: var(--tinta); cursor: pointer;
@@ -451,7 +442,7 @@ body:not(.com-ssh) .so-ssh { display: none; }
 @container (max-width: 820px) {
   .campos-autorizacao { grid-template-columns: 1fr; }
   .cabecalho-alvos, .colunas-servicos { display: none; }
-  .alvo, .com-fingerprint .alvo, .com-ssh .alvo, .com-ssh.com-fingerprint .alvo {
+  .alvo, .com-fingerprint .alvo {
     grid-template-columns: 1fr 1fr; gap: 10px 12px;
     padding: 14px; border: 1px solid var(--linha-suave); border-radius: var(--raio);
   }
