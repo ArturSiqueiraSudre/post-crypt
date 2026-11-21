@@ -27,6 +27,7 @@ SERVICES = {
     "tls-legado": ("rsa", -1, 365),
     "tls-vencendo": ("ec", -355, 10),
     "tls-vencido": ("ec", -400, -5),
+    "tls-desconhecido": ("ec", -1, 365),
 }
 
 

@@ -13,6 +13,8 @@ from rich.console import Console
 
 from postcrypt.certs import CertificateInfo
 from postcrypt.classify import HNDL, PQC, REVIEW, UNREACHABLE, Assessment, load_rules
+from postcrypt.fingerprint import fingerprint_target
+from postcrypt.http_banner.parse import HTTPResponseHead
 from postcrypt.network import SEVERITY_WEIGHT, NetworkAssessment, analyze_network
 from postcrypt.output import render_network, scan_report
 from postcrypt.scanner import ScanResult, TargetResult
@@ -308,3 +310,96 @@ def test_secao_de_rede_nao_aparece_no_terminal_com_um_alvo():
     saida = io.StringIO()
     render_network(scan, analyze_network(scan, RULES), Console(file=saida))
     assert saida.getvalue() == ""
+
+
+# ---------- Estágio 2: mesma versão sem suporte em vários alvos ----------
+
+
+def com_banner(result, server, x_powered_by=None):
+    headers = {"server": server}
+    if x_powered_by:
+        headers["x-powered-by"] = x_powered_by
+    result.fingerprint = fingerprint_target(
+        authorized=True,
+        tls_reachable=True,
+        server_hello=None,
+        head=HTTPResponseHead(200, headers),
+        http_error=None,
+        rules=RULES,
+    )
+    return result
+
+
+def test_mesma_versao_sem_suporte_em_dois_alvos():
+    scan = varredura(
+        com_banner(alvo(443), "Apache/2.4.58 (Ubuntu) OpenSSL/3.0.13"),
+        com_banner(alvo(444), "nginx/1.30.6 OpenSSL/3.0.13"),
+        com_banner(alvo(445), "nginx/1.30.6"),
+    )
+    f = achados(scan)["NET_OUTDATED_VERSION"]
+    assert f.assets == ("10.0.0.1:443", "10.0.0.1:444")
+    assert f.severity == "medium" and f.priority == SEVERITY_WEIGHT["medium"] * 2
+    assert f.evidence == {
+        "product": "OpenSSL",
+        "version": "3.0.13",
+        "supported": "3.5.x ou 4.0 ou mais nova",
+        "source": ["Server"],
+    }
+    assert "OpenSSL 3.0.13" in f.title and "Server" in f.detail and f.action
+
+
+def test_versao_sem_suporte_em_um_alvo_so_nao_e_achado_de_rede():
+    scan = varredura(com_banner(alvo(443), "nginx/1.24.0"), com_banner(alvo(444), "nginx/1.30.6"))
+    assert "NET_OUTDATED_VERSION" not in achados(scan)
+
+
+def test_versoes_diferentes_sem_suporte_nao_se_juntam():
+    scan = varredura(com_banner(alvo(443), "nginx/1.24.0"), com_banner(alvo(444), "nginx/1.26.3"))
+    assert "NET_OUTDATED_VERSION" not in achados(scan)
+
+
+def test_mesma_versao_com_suporte_nao_e_achado():
+    scan = varredura(com_banner(alvo(443), "nginx/1.30.6"), com_banner(alvo(444), "nginx/1.30.6"))
+    assert "NET_OUTDATED_VERSION" not in achados(scan)
+
+
+def test_versao_escondida_e_produto_sem_regra_nao_entram():
+    scan = varredura(
+        com_banner(alvo(443), "nginx"),
+        com_banner(alvo(444), "nginx"),
+        com_banner(alvo(445), "Caddy/1.0.0"),
+        com_banner(alvo(446), "Caddy/1.0.0"),
+    )
+    assert "NET_OUTDATED_VERSION" not in achados(scan)
+
+
+def test_alvos_sem_fingerprint_nao_quebram():
+    scan = varredura(alvo(443), alvo(444, UNREACHABLE), com_banner(alvo(445), "nginx/1.24.0"))
+    assert "NET_OUTDATED_VERSION" not in achados(scan)
+
+
+def test_produto_repetido_no_mesmo_alvo_conta_uma_vez():
+    scan = varredura(
+        com_banner(alvo(443), "PHP/8.1.2", x_powered_by="PHP/8.1.2"),
+        com_banner(alvo(444), "nginx/1.30.6", x_powered_by="PHP/8.1.2"),
+    )
+    f = achados(scan)["NET_OUTDATED_VERSION"]
+    assert f.assets == ("10.0.0.1:443", "10.0.0.1:444") and f.blast_radius == 2
+    assert f.evidence["source"] == ["Server", "X-Powered-By"]
+
+
+def test_versao_sem_suporte_em_muitos_alvos_sobe_na_prioridade():
+    results = [com_banner(alvo(1000 + i), "Microsoft-IIS/8.5") for i in range(300)]
+    f = achados(varredura(*results))["NET_OUTDATED_VERSION"]
+    assert f.blast_radius == 300 and f.priority == SEVERITY_WEIGHT["medium"] * 300
+
+
+def test_banner_hostil_chega_ao_json_so_como_texto():
+    scan = varredura(
+        com_banner(alvo(443), "nginx/1.24.0 X\x1b[31m/1"), com_banner(alvo(444), "nginx/1.24.0")
+    )
+    texto = json.dumps(scan_report(scan, analyze_network(scan, RULES)), ensure_ascii=False)
+    assert "NET_OUTDATED_VERSION" in texto
+    console = Console(file=io.StringIO(), width=200)
+    render_network(scan, analyze_network(scan, RULES), console)
+    assert "\x1b[31m" not in console.file.getvalue()

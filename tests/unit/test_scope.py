@@ -71,3 +71,58 @@ def test_demo_refused_scope_is_refused():
     path = Path(__file__).resolve().parents[2] / "examples" / "escopo-recusado.yaml"
     with pytest.raises(ScopeError, match="faixa ou curinga"):
         load_scope(path)
+
+
+# ---------- http_fingerprint: autorização própria, alvo a alvo (decisão 0002) ----------
+
+
+def _alvo(**extra):
+    return parse_scope(
+        {"authorization": AUTH, "targets": [{"host": "a.example", "port": 443, **extra}]}
+    )
+
+
+def test_http_fingerprint_vem_desligado():
+    (target,) = _alvo().targets
+    assert target.http_fingerprint is False
+    assert target.to_dict()["http_fingerprint"] is False
+
+
+def test_http_fingerprint_ligado_explicitamente():
+    (target,) = _alvo(http_fingerprint=True).targets
+    assert target.http_fingerprint is True
+
+
+def test_http_fingerprint_false_explicito():
+    assert _alvo(http_fingerprint=False).targets[0].http_fingerprint is False
+
+
+@pytest.mark.parametrize("valor", ["true", "sim", 1, 0, None, [], {"x": 1}, "1; rm -rf /"])
+def test_http_fingerprint_so_aceita_booleano(valor):
+    with pytest.raises(ScopeError, match="http_fingerprint deve ser true ou false"):
+        _alvo(http_fingerprint=valor)
+
+
+def test_http_fingerprint_em_yaml_sem_aspas_e_booleano(tmp_path):
+    arquivo = tmp_path / "escopo.yaml"
+    arquivo.write_text(
+        "authorization: {by: Ana, date: 2026-11-20}\n"
+        "targets:\n"
+        "  - {host: a.example, port: 443, http_fingerprint: true}\n"
+        '  - {host: b.example, port: 443, http_fingerprint: "true"}\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ScopeError, match=r"targets\[1\]: http_fingerprint"):
+        load_scope(arquivo)
+
+
+def test_lab_scope_autoriza_fingerprint_so_onde_foi_marcado():
+    path = Path(__file__).resolve().parents[2] / "lab" / "escopo-lab.yaml"
+    marcados = {t.label for t in load_scope(path).targets if t.http_fingerprint}
+    assert marcados == {
+        "tls-hibrido",
+        "tls-classico",
+        "tls-legado",
+        "tls-vencendo",
+        "tls-desconhecido",
+    }

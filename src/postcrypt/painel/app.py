@@ -129,6 +129,8 @@ def escopo_para_yaml(scope: Scope) -> str:
             alvo["owner"] = t.owner
         if t.sni and t.sni != t.host:
             alvo["sni"] = t.sni
+        if t.http_fingerprint:
+            alvo["http_fingerprint"] = True
         alvos.append(alvo)
     corpo = yaml.safe_dump(
         {"authorization": auth, "targets": alvos}, allow_unicode=True, sort_keys=False
@@ -197,6 +199,8 @@ def create_app(
             "regras": str(regras.get("updated", "")),
             "hoje": dt.date.today().isoformat(),
             "status": STATUS_LABELS,
+            # O painel só mostra a caixa "Identificar versão" quando o servidor conhece o campo.
+            "recursos": {"http_fingerprint": True},
             "laboratorio": {
                 "disponivel": lab.disponivel,
                 "ligado": lab.disponivel and lab.ligado,

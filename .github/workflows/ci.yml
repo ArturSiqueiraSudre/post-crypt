@@ -92,7 +92,8 @@ jobs:
         run: .venv/bin/postcrypt scan lab/escopo-lab.yaml --json resultado.json
 
       - name: Confere o gabarito (CA2)
-        run: .venv/bin/python lab/verificar_gabarito.py resultado.json
+        # nginx responde HTTP em todas as portas: o gabarito de fingerprint é do lab em Python
+        run: .venv/bin/python lab/verificar_gabarito.py resultado.json --sem-fingerprint
 
       - name: Logs do nginx
         if: failure()

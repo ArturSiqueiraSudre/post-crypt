@@ -128,9 +128,9 @@ function Esperar-Porta([int]$porta, [int]$segundos = 30) {
     return $false
 }
 
-function Conferir-Laboratorio {
+function Conferir-Laboratorio([string]$Extra = "") {
     Etapa "lab-varredura" "`"$Py`" -m postcrypt scan lab\escopo-lab.yaml --json resultado-testes\lab-resultado.json" | Out-Null
-    Etapa "lab-gabarito" "`"$Py`" lab\verificar_gabarito.py resultado-testes\lab-resultado.json" | Out-Null
+    Etapa "lab-gabarito" "`"$Py`" lab\verificar_gabarito.py resultado-testes\lab-resultado.json $Extra" | Out-Null
 }
 
 $modo = $Laboratorio
@@ -152,7 +152,8 @@ if ($modo -eq "nenhum") {
         if ($subiu -eq 0) {
             Registrar "Laboratório: docker (nginx)"
             Esperar-Porta 8445 | Out-Null
-            Conferir-Laboratorio
+            # nginx responde HTTP em todas as portas: o gabarito de fingerprint é do lab em Python
+            Conferir-Laboratorio "--sem-fingerprint"
             cmd.exe /d /c "docker compose -f lab\docker-compose.yml exec -T tls nginx -V > `"$Saida\lab-nginx-versao.log`" 2>&1"
             Etapa "lab-docker-desligar" "docker compose -f lab\docker-compose.yml down" -Opcional | Out-Null
         } elseif ($Laboratorio -eq "auto") {

@@ -7,7 +7,7 @@
 # Para usar regras próprias: postcrypt scan escopo.yaml --rules minhas-regras.yaml
 
 version: 1
-updated: "2026-10-17"
+updated: "2026-11-20"
 
 references:
   - id: FIPS-203
@@ -20,6 +20,14 @@ references:
     title: "RFC 8446 — The Transport Layer Security (TLS) Protocol Version 1.3"
   - id: DRAFT-ECDHE-MLKEM
     title: "draft-ietf-tls-ecdhe-mlkem — Post-quantum hybrid ECDHE-MLKEM Key Agreement for TLSv1.3"
+  - id: RFC-9110
+    title: "RFC 9110 — HTTP Semantics (campo Server: produto/versão e comentários)"
+  - id: OPENSSL-RELEASE
+    title: "OpenSSL Release Strategy (openssl-library.org/policies/releasestrat), mai. 2026"
+  - id: NGINX-NEWS
+    title: "nginx.org — notícias de versões; ramos 1.30 (estável) e 1.31 (mainline) em nov. 2026"
+  - id: PHP-SUPPORTED
+    title: "php.net/supported-versions — 8.2 com suporte de segurança até 31/12/2026"
 
 # Troca de chave: é aqui que mora o risco "Harvest Now, Decrypt Later".
 key_exchange_groups:
@@ -95,3 +103,61 @@ signature_families:
   ecdsa: EC
   ed25519: Ed25519
   ed448: Ed448
+
+# Fingerprint de versão (postcrypt.fingerprint, decisão 0002). Identifica o
+# software pelo que o próprio servidor declara (cabeçalhos Server e
+# X-Powered-By) e diz se o fabricante ainda corrige aquela versão. Não julga
+# a criptografia: isso continua com as regras acima.
+#
+# "supported" lista o que tinha suporte na data de "updated":
+#   "3.5"   -> qualquer 3.5.x
+#   ">=4.0" -> 4.0 ou mais nova
+# Suporte muda com o calendário dos fabricantes: revise esta seção sempre que
+# atualizar "updated". Produto sem regra aparece como "não avaliado".
+fingerprint:
+  products:
+    nginx:
+      label: nginx
+      tokens: [nginx]
+      supported: [">=1.30"]          # 1.28 e 1.29 sem correções desde abr./mai. 2026
+    apache:
+      label: Apache httpd
+      tokens: [Apache]
+      supported: [">=2.4"]           # 2.2 sem suporte desde 2018
+    iis:
+      label: Microsoft IIS
+      tokens: [Microsoft-IIS]
+      supported: [">=10.0"]          # 8.5 e anteriores acompanham Windows sem suporte
+    openssl:
+      label: OpenSSL
+      tokens: [OpenSSL]
+      supported: ["3.5", ">=4.0"]    # 3.0 (LTS) saiu em 07/09/2026; 3.4 e 3.6 em out./nov. 2026
+      note: "O OpenSSL só negocia troca de chave híbrida com ML-KEM a partir do 3.5."
+    php:
+      label: PHP
+      tokens: [PHP]
+      supported: [">=8.2"]           # 8.1 sem suporte desde 31/12/2025
+
+  # Comentário do cabeçalho que indica pacote de distribuição, cujas correções
+  # às vezes chegam sem mudar o número da versão ("Apache/2.4.58 (Ubuntu)").
+  # Só esses nomes geram o aviso; "(Win64)", por exemplo, não.
+  distributions:
+    - Ubuntu
+    - Debian
+    - Red Hat
+    - RHEL
+    - CentOS
+    - Rocky
+    - AlmaLinux
+    - Oracle Linux
+    - Fedora
+    - SUSE
+    - Alpine
+    - Amazon Linux
+
+  # Assinaturas de pilha TLS (estilo JA4S, só comparáveis entre varreduras do
+  # Post-Crypt) -> nome da pilha. Fica vazio até haver gabarito de campo: uma
+  # assinatura sem entrada aparece como "pilha não identificada", nunca como
+  # chute. Exemplo de entrada:
+  #   t120400_c030_0123456789ab: "OpenSSL 3.5 (nginx 1.30)"
+  tls_stacks: {}

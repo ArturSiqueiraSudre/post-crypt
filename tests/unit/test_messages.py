@@ -134,3 +134,14 @@ def test_parse_certificate_list():
     certs = [b"A" * 5, b"B" * 3]
     inner = b"".join(len(c).to_bytes(3, "big") + c for c in certs)
     assert parse_certificate_tls12(len(inner).to_bytes(3, "big") + inner) == certs
+
+
+def test_server_hello_guarda_a_ordem_das_extensoes():
+    exts = _ext(0xFF01, b"\x00") + _ext(0x000B, b"\x01\x00") + _ext(0x0017, b"")
+    resp = parse_server_hello(_server_hello(random=b"\x01" * 32, suite=0xC02F, exts=exts))
+    assert resp.extensions == (0xFF01, 0x000B, 0x0017)
+
+
+def test_server_hello_sem_extensoes_tem_lista_vazia():
+    body = struct.pack("!H", 0x0303) + b"\x01" * 32 + b"\x00" + struct.pack("!H", 0x002F) + b"\x00"
+    assert parse_server_hello(body).extensions == ()

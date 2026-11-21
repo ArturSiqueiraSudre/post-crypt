@@ -13,11 +13,12 @@ Projeto de Engenharia da Computação — Universidade Presbiteriana Mackenzie, 
 | **I0 — Esqueleto** | `postcrypt scan` para TLS, classificador por regras, JSON e tabela | **Pronto** |
 | **Painel web local** | Varredura pelo navegador, sem terminal (adiantado do I2) | **Pronto** |
 | **Correlação de rede** | Achados que relacionam os alvos entre si, priorizados por impacto (estágio 1 da análise de rede) | **Pronto** |
+| **Fingerprint de versão** | Produto e versão de cada serviço, suporte do fabricante e versão sem suporte repetida na rede (estágio 2) | **Pronto** |
 | I1 — Inventário completo | Sonda SSH, SQLite, CBOM CycloneDX 1.6 | Próximo |
 | I2 — Evidência | Relatório HTML/PDF, registro de certificados, assinatura ML-DSA e `verify` | Planejado |
 | I3 — Validação | Benchmarks sob latência e perda, POCs, testes de usabilidade | Planejado |
 
-## Painel 
+## Painel (sem terminal)
 
 Para quem não usa linha de comando: no Windows, dê **dois cliques em `abrir-painel.cmd`** na pasta do projeto. Na primeira vez ele prepara o ambiente com o [uv](https://docs.astral.sh/uv/) (`winget install astral-sh.uv`); depois abre direto no navegador. Em qualquer sistema, o mesmo painel abre com:
 
@@ -26,7 +27,7 @@ postcrypt painel                  # abre http://127.0.0.1:8765 no navegador
 postcrypt painel --porta 9000 --sem-navegador
 ```
 
-No painel a pessoa preenche quem autorizou, lista os serviços (ou abre um arquivo de escopo), clica em **Varrer** e recebe, para cada serviço, três respostas em linguagem simples: se o tráfego gravado hoje pode ser aberto no futuro, se a cifra é forte e se o certificado está em dia. O resultado pode ser baixado no mesmo JSON da linha de comando. No clone do repositório, o botão **Usar laboratório de teste** liga os seis serviços do laboratório e desliga ao fechar o painel.
+No painel a pessoa preenche quem autorizou, lista os serviços (ou abre um arquivo de escopo), clica em **Varrer** e recebe, para cada serviço, três respostas em linguagem simples: se o tráfego gravado hoje pode ser aberto no futuro, se a cifra é forte e se o certificado está em dia. O resultado pode ser baixado no mesmo JSON da linha de comando. No clone do repositório, o botão **Usar laboratório de teste** liga os sete serviços do laboratório e desliga ao fechar o painel.
 
 O painel segue as regras da ferramenta: escuta só em `127.0.0.1`, recusa pedidos que não venham da própria página (token por execução e checagem do cabeçalho `Host`, contra DNS rebinding), passa pelo mesmo validador de escopo, não grava nada em disco e nunca monta dados da varredura como HTML. As cores da marca ficam em `:root`, no topo de `src/postcrypt/painel/static/painel.css`.
 
@@ -74,9 +75,14 @@ targets:
     label: API do core bancário
     owner: third_party            # ativo de fornecedor
     sni: api.fornecedor.com.br
+  - host: intranet.exemplo.com.br
+    port: 443
+    http_fingerprint: true        # autoriza 1 pedido HEAD / para identificar a versão
 ```
 
 Alvo que não responde não some do resultado: vira **lacuna de visibilidade**.
+
+`http_fingerprint` é opcional e vem desligado. Só com `true` (booleano, sem aspas) a varredura faz, naquele alvo, o único pedido HTTP do fingerprint de versão ([decisão 0002](docs/decisoes/0002-fingerprint-de-versao.md)).
 
 ## Como funciona
 
@@ -92,7 +98,7 @@ Cada serviço recebe três respostas separadas:
 
 ### A rede como um todo
 
-Com dois ou mais alvos, a varredura também compara os serviços entre si. Nada novo é coletado: a correlação só lê o que a sonda já observou.
+Com dois ou mais alvos, a varredura também compara os serviços entre si. Nada novo é coletado: a correlação só lê o que a sonda e o fingerprint já observaram.
 
 | Achado | O que relaciona |
 | --- | --- |
@@ -100,29 +106,45 @@ Com dois ou mais alvos, a varredura também compara os serviços entre si. Nada 
 | `NET_DUPLICATE_LEAF` | O mesmo certificado de servidor aparece em mais de um alvo |
 | `NET_HNDL_EXPOSURE` | Proporção dos ativos próprios avaliados que só faz troca de chave clássica |
 | `NET_VISIBILITY_GAP` | Quanto do escopo não respondeu ou é de terceiros |
+| `NET_OUTDATED_VERSION` | A mesma versão de software, sem suporte do fabricante, em vários alvos (estágio 2) |
 
 Cada achado traz os alvos afetados e uma prioridade, que é o peso da severidade multiplicado pelo número de alvos. Os achados aparecem numa seção própria do terminal, na chave `network` do JSON e na etapa Resultado do painel. Com um alvo só não há achado de rede. Uma CA cujo algoritmo não tem regra cadastrada vira `NET_SHARED_CA_UNCLASSIFIED`, em vez de ser dada como clássica.
+
+### Versão do software (fingerprint)
+
+Saber que software responde do outro lado muda a prioridade: um OpenSSL abaixo do 3.5 não negocia ML-KEM, e um que o fabricante não corrige mais acumula falhas. Para cada alvo, o fingerprint junta dois sinais:
+
+| Sinal | De onde vem | Confiança |
+| --- | --- | --- |
+| Cabeçalhos `Server` e `X-Powered-By` | Um único `HEAD /` no mesmo host e porta, só com `http_fingerprint: true` | O servidor declara; pacotes de distribuição podem ter correções sem mudar o número |
+| Assinatura da pilha TLS (estilo JA4S) | Ordem das extensões do ServerHello que a sonda já recebia: nenhuma conexão a mais | Heurística: só vira nome quando cadastrada nas regras e nunca gera achado sozinha |
+
+O resultado de cada alvo fica na chave `fingerprint` do JSON, com a situação (`observed`, `not_observed`, `not_authorized` ou `unavailable`), os produtos com versão e suporte do fabricante, e se houve pedido HTTP. Sem sinal suficiente, a resposta é "não observado", nunca um chute. Na rede, `NET_OUTDATED_VERSION` aponta a mesma versão sem suporte em dois ou mais alvos. O suporte de cada produto fica na seção `fingerprint` das regras e precisa ser revisado a cada atualização.
 
 As regras ficam em [`src/postcrypt/rules/default.yaml`](src/postcrypt/rules/default.yaml), não no código. Quando um padrão muda, atualiza-se o arquivo, ou passa-se outro com `--rules`.
 
 ## Laboratório
 
-Um nginx com OpenSSL 3.5 serve cinco casos com gabarito conhecido (híbrido, clássico, TLS 1.2 com troca de chave RSA, certificado vencendo, certificado vencido) e uma porta fechada.
+Um nginx com OpenSSL 3.5 serve seis casos com gabarito conhecido (híbrido, clássico, TLS 1.2 com troca de chave RSA, certificado vencendo, certificado vencido e um serviço para o banner de produto desconhecido) e uma porta fechada.
 
 ```bash
 python lab/gerar_certificados.py              # CA e certificados em lab/certs/ (fora do git)
 docker compose -f lab/docker-compose.yml up -d
 postcrypt scan lab/escopo-lab.yaml --json resultado.json
-python lab/verificar_gabarito.py resultado.json
+python lab/verificar_gabarito.py resultado.json --sem-fingerprint
 ```
 
-O CI roda exatamente isso a cada push e falha se algum serviço divergir do [gabarito](lab/gabarito.yaml) ou se algum achado de rede divergir do [gabarito de rede](lab/gabarito-rede.yaml). Todos os certificados do laboratório saem da mesma CA clássica, então o achado de ponto único de falha aparece com os cinco serviços TLS.
+O CI roda exatamente isso a cada push e falha se algum serviço divergir do [gabarito](lab/gabarito.yaml) ou se algum achado de rede divergir do [gabarito de rede](lab/gabarito-rede.yaml). Todos os certificados do laboratório saem da mesma CA clássica, então o achado de ponto único de falha aparece com os seis serviços TLS.
 
 Sem Docker, os mesmos casos e portas sobem em Python (o caso híbrido precisa de OpenSSL 3.5+, como o Python instalado pelo uv):
 
 ```bash
 python lab/servidores_python.py          # Ctrl+C para parar
+postcrypt scan lab/escopo-lab.yaml --json resultado.json
+python lab/verificar_gabarito.py resultado.json
 ```
+
+No laboratório em Python, quatro serviços respondem ao `HEAD /` com um cabeçalho `Server` conhecido de antemão (um deles de um produto sem regra, que precisa sair "suporte não avaliado"), e o [gabarito de fingerprint](lab/gabarito-fingerprint.yaml) confere produto, versão e suporte; um serviço autorizado não fala HTTP (precisa sair "não observado") e outro não tem a autorização. No Docker, o nginx responde HTTP em todas as portas com a versão real da imagem, por isso lá a conferência usa `--sem-fingerprint`.
 
 ## Desenvolvimento
 
@@ -151,6 +173,8 @@ src/postcrypt/
   scope.py        arquivo de escopo e validações
   scanner.py      orquestração paralela, só nos alvos do escopo
   tls/            ClientHello, leitura do ServerHello, sonda
+  http_banner/    pedido HEAD mínimo do fingerprint e leitura da resposta
+  fingerprint.py  produto, versão e suporte do fabricante (lógica pura)
   certs.py        leitura de certificados X.509
   classify.py     troca de chave × cifra × autenticação
   network.py      correlação entre alvos e prioridade por impacto

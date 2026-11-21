@@ -22,6 +22,9 @@ def make_context(mode: str, cert: Path, key: Path) -> ssl.SSLContext:
         pass  # padrões do OpenSSL 3.5 já incluem X25519MLKEM768
     elif mode == "classical":
         ctx.set_ecdh_curve("prime256v1")  # restringe os grupos a P-256
+    elif mode == "tls13-classical":
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_3  # sem TLS 1.2: só há HelloRetryRequest
+        ctx.set_ecdh_curve("prime256v1")
     elif mode == "tls12-rsa":
         ctx.maximum_version = ssl.TLSVersion.TLSv1_2
         ctx.set_ciphers("AES256-GCM-SHA384")  # troca de chave RSA, sem sigilo futuro
@@ -31,10 +34,16 @@ def make_context(mode: str, cert: Path, key: Path) -> ssl.SSLContext:
 
 
 class TLSServer:
-    """Aceita conexões e tenta o handshake; erros de handshake são esperados."""
+    """Aceita conexões e tenta o handshake; erros de handshake são esperados.
 
-    def __init__(self, mode: str, cert: Path, key: Path):
+    Com ``http_response``, responde esses bytes a quem mandar um pedido HTTP
+    depois do handshake, e guarda em ``http_requests`` cada pedido recebido.
+    """
+
+    def __init__(self, mode: str, cert: Path, key: Path, *, http_response: bytes | None = None):
         self.ctx = make_context(mode, cert, key)
+        self.http_response = http_response
+        self.http_requests: list[bytes] = []
         self.sock = socket.create_server(("127.0.0.1", 0))
         self.port = self.sock.getsockname()[1]
         self._stop = threading.Event()
@@ -64,11 +73,27 @@ class TLSServer:
     def _handle(self, conn: socket.socket) -> None:
         conn.settimeout(3)
         with suppress(OSError, ssl.SSLError):
-            with self.ctx.wrap_socket(conn, server_side=True) as tls, suppress(OSError):
-                tls.recv(1)
+            with (
+                self.ctx.wrap_socket(conn, server_side=True) as tls,
+                suppress(OSError, ssl.SSLError),
+            ):
+                if self.http_response is None:
+                    tls.recv(1)
+                else:
+                    self._answer(tls)
             return
         with suppress(OSError):
             conn.close()
+
+    def _answer(self, tls: ssl.SSLSocket) -> None:
+        request = b""
+        while b"\r\n\r\n" not in request and len(request) < 8192:
+            chunk = tls.recv(1024)
+            if not chunk:
+                return
+            request += chunk
+        self.http_requests.append(request)
+        tls.sendall(self.http_response or b"")
 
 
 def closed_port() -> int:

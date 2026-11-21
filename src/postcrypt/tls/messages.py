@@ -127,6 +127,9 @@ class ServerResponse:
     selected_group: int | None = None  # grupo do HRR ou do key_share
     alert: int | None = None
     certificates: list[bytes] = field(default_factory=list)  # só em TLS 1.2
+    # Tipos de extensão na ordem em que o servidor respondeu: sinal de pilha
+    # TLS para o fingerprint (estilo JA4S), sem nenhuma conexão a mais.
+    extensions: tuple[int, ...] = ()
 
 
 def _parse_extensions(data: bytes) -> dict[int, bytes]:
@@ -175,6 +178,7 @@ def parse_server_hello(body: bytes) -> ServerResponse:
         version=version,
         cipher_suite=cipher_suite,
         selected_group=selected_group,
+        extensions=tuple(exts),  # dict preserva a ordem de chegada
     )
 
 
