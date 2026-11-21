@@ -403,3 +403,41 @@ def test_banner_hostil_chega_ao_json_so_como_texto():
     console = Console(file=io.StringIO(), width=200)
     render_network(scan, analyze_network(scan, RULES), console)
     assert "\x1b[31m" not in console.file.getvalue()
+
+
+# ---------- Estágio 3: alvos SSH entram nos achados de escala sem mudar a estrutura ----------
+
+
+def test_alvos_ssh_contam_na_exposicao_a_hndl_e_na_lacuna():
+    from postcrypt.classify_ssh import classify_ssh
+    from postcrypt.ssh.probe import SSHObservation
+
+    def ssh(port, kex):
+        obs = SSHObservation(software="OpenSSH_9.6p1", kex=kex, host_key=["ssh-ed25519"])
+        target = Target("10.0.0.2", port, protocol="ssh", sni=None)
+        return TargetResult(target, True, 1, None, classify_ssh(obs, RULES), ssh=obs)
+
+    fora = Target("10.0.0.3", 22, protocol="ssh", sni=None)
+    sem_resposta = TargetResult(fora, False, 1, None, classify_ssh(None, RULES), "recusado")
+    scan = varredura(
+        ssh(22, ["curve25519-sha256"]), ssh(2222, ["mlkem768x25519-sha256"]), sem_resposta
+    )
+    encontrados = achados(scan)
+    assert encontrados["NET_HNDL_EXPOSURE"].assets == ("10.0.0.2:22",)
+    assert encontrados["NET_VISIBILITY_GAP"].assets == ("10.0.0.3:22",)
+    assert "NET_SHARED_CLASSICAL_CA" not in encontrados  # SSH não tem cadeia de certificados
+
+
+def test_mesmo_openssh_sem_suporte_em_dois_alvos_ssh():
+    from postcrypt.fingerprint import fingerprint_ssh_banner
+
+    results = []
+    for port in (22, 2222):
+        r = alvo(port)
+        r.fingerprint = fingerprint_ssh_banner(
+            reachable=True, software="OpenSSH_8.9p1", comments="Ubuntu-3ubuntu0.13", rules=RULES
+        )
+        results.append(r)
+    f = achados(varredura(*results))["NET_OUTDATED_VERSION"]
+    assert f.evidence["product"] == "OpenSSH" and f.evidence["source"] == ["banner SSH"]
+    assert "banner SSH" in f.detail

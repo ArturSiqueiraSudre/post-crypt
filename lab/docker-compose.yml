@@ -18,3 +18,13 @@ services:
       - ./certs:/etc/nginx/certs:ro
     ports:
       - "127.0.0.1:8441-8446:8441-8446"
+
+  # Estágio 3: OpenSSH de verdade, dois casos (lab/ssh/). Ninguém consegue entrar.
+  ssh:
+    image: alpine:3.22   # OpenSSH 10.x: troca híbrida mlkem768x25519 por padrão
+    command: ["sh", "/lab/ssh/iniciar.sh"]
+    volumes:
+      - ./ssh:/lab/ssh:ro
+    ports:
+      - "127.0.0.1:8447:2222"
+      - "127.0.0.1:8448:2223"

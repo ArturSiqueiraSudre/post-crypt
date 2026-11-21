@@ -14,7 +14,8 @@ Projeto de Engenharia da Computação — Universidade Presbiteriana Mackenzie, 
 | **Painel web local** | Varredura pelo navegador, sem terminal (adiantado do I2) | **Pronto** |
 | **Correlação de rede** | Achados que relacionam os alvos entre si, priorizados por impacto (estágio 1 da análise de rede) | **Pronto** |
 | **Fingerprint de versão** | Produto e versão de cada serviço, suporte do fabricante e versão sem suporte repetida na rede (estágio 2) | **Pronto** |
-| I1 — Inventário completo | Sonda SSH, SQLite, CBOM CycloneDX 1.6 | Próximo |
+| **Suporte a SSH** | Sonda SSH (banner e algoritmos anunciados), classificação pós-quântica e versão do OpenSSH (estágio 3) | **Pronto** |
+| I1 — Inventário completo | SQLite, CBOM CycloneDX 1.6 | Próximo |
 | I2 — Evidência | Relatório HTML/PDF, registro de certificados, assinatura ML-DSA e `verify` | Planejado |
 | I3 — Validação | Benchmarks sob latência e perda, POCs, testes de usabilidade | Planejado |
 
@@ -78,9 +79,14 @@ targets:
   - host: intranet.exemplo.com.br
     port: 443
     http_fingerprint: true        # autoriza 1 pedido HEAD / para identificar a versão
+  - host: bastion.exemplo.com.br
+    port: 22
+    protocol: ssh                 # tls é o padrão
 ```
 
 Alvo que não responde não some do resultado: vira **lacuna de visibilidade**.
+
+`protocol` é `tls` (padrão) ou `ssh`. Num alvo SSH, `sni` e `http_fingerprint` são recusados ([decisão 0003](docs/decisoes/0003-suporte-a-ssh.md)).
 
 `http_fingerprint` é opcional e vem desligado. Só com `true` (booleano, sem aspas) a varredura faz, naquele alvo, o único pedido HTTP do fingerprint de versão ([decisão 0002](docs/decisoes/0002-fingerprint-de-versao.md)).
 
@@ -95,6 +101,18 @@ Cada serviço recebe três respostas separadas:
 | **Troca de chave** — o tráfego de hoje pode ser decifrado no futuro? | `X25519MLKEM768` → protegido · `x25519` → vulnerável a HNDL |
 | **Cifra simétrica** — o conteúdo resiste a um adversário quântico? | `AES_256_GCM` → sim |
 | **Autenticação** — até quando a assinatura do certificado vale? | `RSA-2048` → depreciado após 2030, proibido após 2035 (NIST IR 8547, rascunho) |
+
+### SSH
+
+A sonda SSH também não autentica nem faz troca de chave. O servidor SSH anuncia em claro, logo ao conectar, o banner de versão e a lista de algoritmos que aceita (mensagem KEXINIT, RFC 4253). A sonda lê o banner, manda a própria identificação, lê a lista e fecha: uma conexão, um prazo total, nenhuma biblioteca nova. As mesmas três perguntas valem:
+
+| Pergunta | Exemplo de resposta |
+| --- | --- |
+| **Troca de chave** | `mlkem768x25519-sha256` ou `sntrup761x25519-sha512` aceitos → protegido · só `curve25519-sha256` → vulnerável a HNDL |
+| **Cifra simétrica** | `chacha20-poly1305@openssh.com` → forte · `aes128-cbc` ainda aceito → achado `SSH_WEAK_CIPHER` |
+| **Autenticação** | `ssh-ed25519`, `rsa-sha2-512` → clássicas, proibidas após 2035 · `ssh-rsa` (SHA-1) → achado `SSH_WEAK_HOST_KEY` |
+
+O banner (`OpenSSH_9.6p1 Ubuntu-3ubuntu13`) entra no fingerprint de versão sem pedido extra, porque o próprio servidor o envia.
 
 ### A rede como um todo
 
@@ -125,7 +143,7 @@ As regras ficam em [`src/postcrypt/rules/default.yaml`](src/postcrypt/rules/defa
 
 ## Laboratório
 
-Um nginx com OpenSSL 3.5 serve seis casos com gabarito conhecido (híbrido, clássico, TLS 1.2 com troca de chave RSA, certificado vencendo, certificado vencido e um serviço para o banner de produto desconhecido) e uma porta fechada.
+Um nginx com OpenSSL 3.5 serve seis casos TLS com gabarito conhecido (híbrido, clássico, TLS 1.2 com troca de chave RSA, certificado vencendo, certificado vencido e um serviço para o banner de produto desconhecido), um OpenSSH de verdade serve dois casos SSH (híbrido e só clássico, em `lab/ssh/`) e uma porta fica fechada.
 
 ```bash
 python lab/gerar_certificados.py              # CA e certificados em lab/certs/ (fora do git)
@@ -136,7 +154,7 @@ python lab/verificar_gabarito.py resultado.json --sem-fingerprint
 
 O CI roda exatamente isso a cada push e falha se algum serviço divergir do [gabarito](lab/gabarito.yaml) ou se algum achado de rede divergir do [gabarito de rede](lab/gabarito-rede.yaml). Todos os certificados do laboratório saem da mesma CA clássica, então o achado de ponto único de falha aparece com os seis serviços TLS.
 
-Sem Docker, os mesmos casos e portas sobem em Python (o caso híbrido precisa de OpenSSL 3.5+, como o Python instalado pelo uv):
+Sem Docker, os mesmos casos e portas sobem em Python (os dois SSH imitam o banner e a lista de algoritmos de um OpenSSH real) (o caso híbrido precisa de OpenSSL 3.5+, como o Python instalado pelo uv):
 
 ```bash
 python lab/servidores_python.py          # Ctrl+C para parar
@@ -173,10 +191,12 @@ src/postcrypt/
   scope.py        arquivo de escopo e validações
   scanner.py      orquestração paralela, só nos alvos do escopo
   tls/            ClientHello, leitura do ServerHello, sonda
+  ssh/            leitura do banner e do KEXINIT, sonda SSH
   http_banner/    pedido HEAD mínimo do fingerprint e leitura da resposta
   fingerprint.py  produto, versão e suporte do fabricante (lógica pura)
   certs.py        leitura de certificados X.509
-  classify.py     troca de chave × cifra × autenticação
+  classify.py     troca de chave × cifra × autenticação (TLS)
+  classify_ssh.py as mesmas três perguntas para SSH
   network.py      correlação entre alvos e prioridade por impacto
   rules/          regras em YAML
   output.py       tabela, seção de rede e JSON

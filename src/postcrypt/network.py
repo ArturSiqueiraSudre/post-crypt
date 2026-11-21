@@ -380,8 +380,8 @@ def _outdated_version(results: list[TargetResult]) -> list[NetworkFinding]:
                 f"{label}, sem suporte do fabricante, em {count}",
                 f"{count.capitalize()} rodam {label}, versão "
                 f"que o fabricante não corrige mais{supported}. Uma falha nova nessa versão "
-                "atinge todos de uma vez. A versão vem do cabeçalho "
-                f"{' e '.join(sources)}, declarado pelo próprio servidor.",
+                "atinge todos de uma vez. A versão foi declarada pelo próprio servidor "
+                f"({' e '.join(sources)}).",
                 [asset_id(r) for r, _ in members],
                 {
                     "product": product.name,

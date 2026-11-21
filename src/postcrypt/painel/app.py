@@ -123,6 +123,8 @@ def escopo_para_yaml(scope: Scope) -> str:
     alvos = []
     for t in scope.targets:
         alvo: dict[str, Any] = {"host": t.host, "port": t.port}
+        if t.protocol != "tls":
+            alvo["protocol"] = t.protocol
         if t.label:
             alvo["label"] = t.label
         if t.owner != "self":
@@ -200,7 +202,7 @@ def create_app(
             "hoje": dt.date.today().isoformat(),
             "status": STATUS_LABELS,
             # O painel só mostra a caixa "Identificar versão" quando o servidor conhece o campo.
-            "recursos": {"http_fingerprint": True},
+            "recursos": {"http_fingerprint": True, "ssh": True},
             "laboratorio": {
                 "disponivel": lab.disponivel,
                 "ligado": lab.disponivel and lab.ligado,
