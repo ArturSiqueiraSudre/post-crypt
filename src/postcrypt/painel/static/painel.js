@@ -304,6 +304,8 @@ function adicionarAlvo(valores = {}) {
     escopoMudou();
   });
   linha.addEventListener("input", () => linha.removeAttribute("data-erro"));
+  linha.querySelector('[data-campo="protocol"]').addEventListener("change", () => ajustarProtocolo(linha, { trocarPorta: true }));
+  ajustarProtocolo(linha, { trocarPorta: false });
   $("#lista-alvos").append(linha);
   escopoMudou();
   return linha;
@@ -398,6 +400,7 @@ function renderizarRevisao(escopo) {
             el("td", { text: t.label || "—" }),
             el("td", { text: t.host }),
             el("td", { text: String(t.port) }),
+            comSsh() ? el("td", { text: ehSsh(t) ? "SSH" : "TLS" }) : null,
             el("td", { text: DONOS[t.owner] || t.owner }),
             el("td", { text: t.sni && t.sni !== t.host ? t.sni : "—" }),
             comFingerprint() ? el("td", { text: t.http_fingerprint === true ? "Identificar (1 pedido HTTP)" : "Não pedir" }) : null,
@@ -501,7 +504,17 @@ function respostaCifra(r) {
   return { classe: "neutro", texto: "Não deu para saber", obs: s.cipher || "" };
 }
 
+function respostaChaveSsh(r) {
+  const auth = r.assessment.authentication || {};
+  const chaves = r.ssh && Array.isArray(r.ssh.host_key) ? r.ssh.host_key : [];
+  const obs = chaves.slice(0, 2).join(", ") + (chaves.length > 2 ? " …" : "");
+  if (auth.status === "pqc") return { classe: "bom", texto: "Chave pós-quântica", obs };
+  if (auth.status === "quantum_vulnerable") return { classe: "neutro", texto: "Chave clássica, migrar até 2035", obs };
+  return { classe: "neutro", texto: "Chave não lida", obs };
+}
+
 function respostaCertificado(r) {
+  if (r.ssh) return respostaChaveSsh(r);
   const certs = r.tls && r.tls.certificates;
   if (!certs || !certs.length) return { classe: "neutro", texto: "Não lido", obs: "" };
   const c = certs[0];
@@ -563,14 +576,14 @@ function cartaoServico(r) {
       "div",
       { class: "nome" },
       el("strong", { text: nomeDoAlvo(t) }),
-      el("small", { text: `${t.host}:${t.port}` }),
+      el("small", { text: `${t.host}:${t.port}${ehSsh(t) ? " · SSH" : ""}` }),
       t.owner === "third_party" ? el("span", { class: "dono", text: "De fornecedor" }) : null,
       produtosSemSuporte(r).length ? el("span", { class: "versao-alerta", text: "Software sem suporte" }) : null,
     ),
     el("span", { class: "selo", text: sit.nome, title: r.assessment.status_label }),
     celula("Tráfego gravado hoje", respostaTrafego(r)),
     celula("Cifra", respostaCifra(r)),
-    celula("Certificado", respostaCertificado(r)),
+    celula(r.ssh ? "Chave do servidor" : "Certificado", respostaCertificado(r)),
   );
 
   const achados = r.assessment.findings.length
@@ -589,20 +602,7 @@ function cartaoServico(r) {
       )
     : el("p", { text: "Nada a corrigir neste serviço." });
 
-  const tls = r.tls || {};
-  const cert = (tls.certificates || [])[0];
-  const linhas = [
-    ["Situação técnica", r.assessment.status_label],
-    ["TLS 1.3", tls.tls13 === undefined ? "—" : tls.tls13 ? "Sim" : "Não"],
-    ["Grupos pós-quânticos", (tls.pqc_groups || []).join(", ") || "Nenhum"],
-    ["Troca clássica", tls.classical_group || tls.tls12_key_exchange || "—"],
-    ["Cifra", tls.tls13_cipher_suite || tls.tls12_cipher_suite || "—"],
-    ["Certificado", cert ? cert.subject : "—"],
-    ["Emitido por", cert ? cert.issuer : "—"],
-    ["Válido até", cert ? cert.not_after.slice(0, 10) : "—"],
-    ["Assinatura", cert ? cert.signature_algorithm : "—"],
-    ["Tempo da verificação", `${r.duration_ms} ms`],
-  ];
+  const linhas = r.ssh ? linhasSsh(r) : linhasTls(r);
   if (r.error) linhas.push(["Erro", r.error]);
   linhas.push(...linhasDeFingerprint(r));
 
@@ -813,6 +813,8 @@ function renderizarResultado(resultado) {
   );
   cartoesPorServico.clear();
   $("#servicos").replaceChildren(...ordenados.map(cartaoServico));
+  const ultimaColuna = document.querySelector(".colunas-servicos span:last-child");
+  ultimaColuna.textContent = resultado.results.some((r) => r.ssh) ? "Certificado ou chave" : "Certificado";
   renderizarRede(resultado);
 
   const quando = new Date(resultado.finished_at).toLocaleString("pt-BR");

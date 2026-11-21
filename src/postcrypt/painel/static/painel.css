@@ -447,8 +447,7 @@ body:not(.com-fingerprint) .so-fingerprint { display: none; }
     padding: 14px; border: 1px solid var(--linha-suave); border-radius: var(--raio);
   }
   .alvo .rotulo-movel { display: inline; }
-  .alvo label:nth-child(2) { grid-column: 1 / -1; }
-  .alvo label:nth-child(5) { grid-column: 1 / -1; }
+  .alvo label:has([data-campo="host"]), .alvo label:has([data-campo="sni"]) { grid-column: 1 / -1; }
   .servico.rede-achado > summary { grid-template-columns: auto minmax(0, 1fr); }
   .rede-alcance { grid-column: 1 / -1; }
   .remover { justify-self: start; padding-left: 0; }
