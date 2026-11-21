@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import socket
 import ssl
+import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 
 from postcrypt.certs import CertificateInfo, parse_certificate
@@ -37,6 +39,14 @@ from postcrypt.tls.messages import (
 
 class ProbeConnectionError(OSError):
     """Não foi possível conversar com o alvo (porta fechada, timeout, reset)."""
+
+
+Clock = Callable[[], float]
+Connect = Callable[[tuple[str, int], float], socket.socket]
+
+
+def _connect(address: tuple[str, int], timeout: float) -> socket.socket:
+    return socket.create_connection(address, timeout=timeout)
 
 
 @dataclass(frozen=True)
@@ -94,16 +104,28 @@ def _shape(resp: ServerResponse) -> ServerHelloShape | None:
 
 
 def exchange(
-    host: str, port: int, hello: bytes, *, timeout: float, want_certificates: bool = False
+    host: str,
+    port: int,
+    hello: bytes,
+    *,
+    timeout: float,
+    want_certificates: bool = False,
+    clock: Clock = time.monotonic,
+    connect: Connect = _connect,
 ) -> ServerResponse:
     """Envia um ClientHello e lê a resposta até ter o que precisa.
 
     Só levanta ``ProbeConnectionError`` quando nem a conexão TCP abre. Depois de
     conectado, silêncio, reset ou resposta que não é TLS viram um
     ``ServerResponse`` com ``kind`` ``no_response`` ou ``not_tls``.
+
+    ``timeout`` é o prazo da troca inteira (conexão e leitura), não de cada
+    leitura: um servidor que goteja a resposta um byte por vez não segura a
+    sonda além dele. Prazo esgotado conta como "sem resposta".
     """
+    deadline = clock() + timeout
     try:
-        sock = socket.create_connection((host, port), timeout=timeout)
+        sock = connect((host, port), timeout)
     except OSError as exc:
         raise ProbeConnectionError(str(exc) or exc.__class__.__name__) from exc
 
@@ -113,6 +135,10 @@ def exchange(
             sock.sendall(hello)
             reader = HandshakeReader()
             while True:
+                remaining = deadline - clock()
+                if remaining <= 0:
+                    break  # prazo da troca esgotado
+                sock.settimeout(remaining)
                 data = sock.recv(16384)
                 if not data:
                     break
@@ -193,14 +219,23 @@ class TLSProbe:
         # Inventário, não confiança: a cadeia é registrada mesmo se for inválida.
         ctx.verify_mode = ssl.CERT_NONE  # nosec B501
         server_hostname = self.sni if self.sni and not _is_ip(self.sni) else None
-        with (
-            socket.create_connection((self.host, self.port), timeout=self.timeout) as raw,
-            ctx.wrap_socket(raw, server_hostname=server_hostname) as tls,
-        ):
-            if hasattr(tls, "get_unverified_chain"):  # Python 3.13+
-                return [bytes(c) for c in tls.get_unverified_chain() or []]
-            leaf = tls.getpeercert(binary_form=True)
-            return [leaf] if leaf else []
+        deadline = time.monotonic() + self.timeout
+        with socket.create_connection((self.host, self.port), timeout=self.timeout) as raw:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("prazo esgotado antes do handshake")
+            # O handshake só recebe o que sobrou do prazo (o CPython aplica o timeout
+            # do socket ao handshake inteiro, então gotejar o handshake não estica).
+            raw.settimeout(remaining)
+            with ctx.wrap_socket(raw, server_hostname=server_hostname) as tls:
+                return self._chain_of(tls)
+
+    @staticmethod
+    def _chain_of(tls: ssl.SSLSocket) -> list[bytes]:
+        if hasattr(tls, "get_unverified_chain"):  # Python 3.13+
+            return [bytes(c) for c in tls.get_unverified_chain() or []]
+        leaf = tls.getpeercert(binary_form=True)
+        return [leaf] if leaf else []
 
     # --- Execução completa ---------------------------------------------------
 

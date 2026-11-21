@@ -4,6 +4,7 @@ import contextlib
 import json
 import socket
 import threading
+import time
 
 import pytest
 from typer.testing import CliRunner
@@ -13,6 +14,7 @@ from postcrypt.cli import app
 from postcrypt.scanner import scan_target
 from postcrypt.scope import Target
 from postcrypt.tls.probe import TLSProbe
+from tests.support.drip_proxy import DripProxy
 from tests.support.pki import TestPKI
 from tests.support.tls_server import HAS_OPENSSL_35, TLSServer, closed_port
 
@@ -126,3 +128,18 @@ def test_scan_only_contacts_listed_targets(pki, monkeypatch):
         result = scan_target(Target("127.0.0.1", srv.port, sni="escopo.lab"), RULES, 3)
     assert result.assessment.status == PQC
     assert contacted and set(contacted) == {("127.0.0.1", srv.port)}
+
+
+def test_servidor_que_goteja_o_handshake_nao_segura_a_sonda(pki):
+    """Cada troca tem prazo total: a sonda termina mesmo com um byte a cada 0,3 s."""
+    cert = pki.issue("lento.lab")
+    with (
+        TLSServer("classical", cert.cert_path, cert.key_path) as srv,
+        DripProxy(srv.port, delay_s=0.3) as proxy,
+    ):
+        inicio = time.monotonic()
+        obs = TLSProbe("127.0.0.1", proxy.port, sni="lento.lab", timeout=1).run()
+        decorrido = time.monotonic() - inicio
+    assert decorrido < 10, f"a sonda levou {decorrido:.1f}s com timeout de 1 s"
+    # O ServerHello não chega inteiro dentro do prazo: nada é inventado.
+    assert not obs.tls13 and not obs.tls12 and obs.certificates == []
