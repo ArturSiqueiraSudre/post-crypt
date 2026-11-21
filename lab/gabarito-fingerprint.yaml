@@ -1,0 +1,19 @@
+# Fingerprint esperado no laboratório em Python (Estágio 2), pelos nomes do escopo.
+# Os banners vêm de BANNERS em lab/servidores_python.py e são conhecidos de antemão.
+#   status: observed | not_observed | not_authorized | unavailable
+#   products: produto -> [versão, suporte] que o fingerprint precisa identificar
+tls-hibrido:
+  status: observed
+  products: { nginx: ["1.30.6", supported] }
+tls-classico:
+  status: observed
+  products: { Apache httpd: ["2.4.58", supported], OpenSSL: ["3.0.13", unsupported] }
+tls-legado:
+  status: observed
+  products: { Apache httpd: ["2.4.58", supported], OpenSSL: ["3.0.13", unsupported] }
+tls-desconhecido:                         # banner de produto sem regra: nunca é chute
+  status: observed
+  products: { Caddy: ["2.8.4", unknown] }
+tls-vencendo: { status: not_observed }    # autorizado, mas o serviço não fala HTTP
+tls-vencido: { status: not_authorized }   # sem http_fingerprint no escopo
+desligado: { status: unavailable }

@@ -89,3 +89,73 @@ def test_python_lab_matches_lab_scope():
     scope = load_scope(LAB / "escopo-lab.yaml")
     tls_targets = {t.label: t.port for t in scope.targets if t.label != "desligado"}
     assert {name: port for name, (port, _mode) in services.items()} == tls_targets
+
+
+# ---------- Estágio 2: gabarito do fingerprint ----------
+
+
+def test_gabarito_de_fingerprint_cobre_o_escopo_do_laboratorio():
+    scope = load_scope(LAB / "escopo-lab.yaml")
+    fp = yaml.safe_load((LAB / "gabarito-fingerprint.yaml").read_text(encoding="utf-8"))
+    assert set(fp) == {t.label for t in scope.targets}
+
+
+def test_banners_so_em_servicos_autorizados_e_casam_com_o_gabarito():
+    banners = _load("servidores_python").BANNERS
+    scope = {t.label: t for t in load_scope(LAB / "escopo-lab.yaml").targets}
+    fp = yaml.safe_load((LAB / "gabarito-fingerprint.yaml").read_text(encoding="utf-8"))
+    for name in banners:
+        assert scope[name].http_fingerprint, name
+        assert fp[name]["status"] == "observed"
+    observados = {label for label, exp in fp.items() if exp["status"] == "observed"}
+    assert observados == set(banners)
+
+
+def test_resposta_http_do_laboratorio_passa_no_parser():
+    from postcrypt.http_banner.parse import parse_response_head
+
+    lab = _load("servidores_python")
+    for banner in lab.BANNERS.values():
+        assert parse_response_head(lab.http_response(banner)).headers["server"] == banner
+
+
+def _fp_result(status="observed", products=None):
+    return {
+        "results": [
+            {
+                "target": {"label": "a"},
+                "fingerprint": {"status": status, "products": products or []},
+            }
+        ]
+    }
+
+
+def test_conferencia_de_fingerprint_aponta_divergencia():
+    check = _load("verificar_gabarito").check_fingerprint
+    nginx = [{"name": "nginx", "version": "1.30.6", "support": "supported"}]
+    esperado = {"a": {"status": "observed", "products": {"nginx": ["1.30.6", "supported"]}}}
+    assert check(_fp_result(products=nginx), esperado) == []
+    assert check(_fp_result(status="not_observed", products=nginx), esperado)
+    assert check(_fp_result(products=[]), esperado) == [
+        "fingerprint a: não identificou nginx 1.30.6"
+    ]
+    errado = [{**nginx[0], "support": "unsupported"}]
+    assert "esperado supported" in check(_fp_result(products=errado), esperado)[0]
+    assert check({"results": [{"target": {"label": "a"}}]}, esperado) == [
+        "fingerprint a: ausente do resultado"
+    ]
+    hostil = {
+        "results": [
+            {"target": {"label": "a"}, "fingerprint": {"status": "observed", "products": "<x>"}}
+        ]
+    }
+    assert check(hostil, esperado)  # formato hostil não passa
+
+
+def test_docker_pula_o_gabarito_de_fingerprint(tmp_path, capsys):
+    verificar = _load("verificar_gabarito")
+    assert verificar.main(["verificar"]) == 2
+    vazio = tmp_path / "r.json"
+    vazio.write_text('{"results": [], "network": {"findings": []}}', encoding="utf-8")
+    verificar.main(["verificar", str(vazio), "--sem-fingerprint"])
+    assert "fingerprints conferem" not in capsys.readouterr().out

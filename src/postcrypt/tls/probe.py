@@ -39,6 +39,30 @@ class ProbeConnectionError(OSError):
     """Não foi possível conversar com o alvo (porta fechada, timeout, reset)."""
 
 
+@dataclass(frozen=True)
+class ServerHelloShape:
+    """Forma da resposta do servidor a um ClientHello fixo da sonda.
+
+    Versão, suíte e ordem das extensões dependem da biblioteca TLS do
+    servidor e da configuração dele. O fingerprint usa isso como sinal de
+    pilha, no estilo JA4S. Só é comparável entre varreduras do Post-Crypt,
+    porque o ClientHello que provoca a resposta é sempre o mesmo.
+    """
+
+    kind: str  # "server_hello" (TLS 1.2) ou "hello_retry_request" (TLS 1.3)
+    version: int
+    cipher_suite: int
+    extensions: tuple[int, ...]
+
+    def to_dict(self) -> dict:
+        return {
+            "kind": self.kind,
+            "version": f"0x{self.version:04x}",
+            "cipher_suite": f"0x{self.cipher_suite:04x}",
+            "extensions": [f"0x{e:04x}" for e in self.extensions],
+        }
+
+
 @dataclass
 class TLSObservation:
     tls13: bool = False
@@ -54,11 +78,19 @@ class TLSObservation:
     not_tls: bool = False  # a porta respondeu, mas não como TLS
     certificates: list[CertificateInfo] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    server_hello: ServerHelloShape | None = None  # sinal de pilha para o fingerprint
 
     def to_dict(self) -> dict:
         data = asdict(self)
         data["certificates"] = [c.to_dict() for c in self.certificates]
+        data["server_hello"] = self.server_hello.to_dict() if self.server_hello else None
         return data
+
+
+def _shape(resp: ServerResponse) -> ServerHelloShape | None:
+    if resp.version is None or resp.cipher_suite is None:
+        return None
+    return ServerHelloShape(resp.kind, resp.version, resp.cipher_suite, resp.extensions)
 
 
 def exchange(
@@ -179,6 +211,7 @@ class TLSProbe:
         classical = self.tls13_select(CLASSICAL_GROUPS)
         if classical is not None:
             obs.tls13 = True
+            obs.server_hello = _shape(classical)
             obs.classical_group = group_name(classical.selected_group or 0)
             name, _, symmetric = suite_info(classical.cipher_suite or 0)
             obs.tls13_cipher_suite, obs.tls13_symmetric = name, symmetric
@@ -187,6 +220,7 @@ class TLSProbe:
         pqc = self.tls13_select(PQC_GROUPS)
         if pqc is not None:
             obs.tls13 = True
+            obs.server_hello = obs.server_hello or _shape(pqc)
             if obs.tls13_cipher_suite is None:
                 name, _, symmetric = suite_info(pqc.cipher_suite or 0)
                 obs.tls13_cipher_suite, obs.tls13_symmetric = name, symmetric
@@ -199,6 +233,8 @@ class TLSProbe:
         tls12 = self.tls12_hello(tuple(TLS12_SUITES))
         if tls12 is not None:
             obs.tls12 = True
+            # ServerHello completo do TLS 1.2 diz mais da pilha que o HelloRetryRequest.
+            obs.server_hello = _shape(tls12) or obs.server_hello
             name, kx, symmetric = suite_info(tls12.cipher_suite or 0)
             obs.tls12_cipher_suite, obs.tls12_key_exchange, obs.tls12_symmetric = (
                 name,

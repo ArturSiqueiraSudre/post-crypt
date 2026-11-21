@@ -110,6 +110,47 @@ def test_varredura_pelo_painel_classifica_os_alvos(client, tmp_path):
     assert [r["assessment"]["status"] for r in resultado["results"]] == [HNDL, UNREACHABLE]
 
 
+def test_info_anuncia_o_recurso_de_fingerprint(client):
+    assert client.get("/api/info").json()["recursos"] == {"http_fingerprint": True}
+
+
+def test_escopo_com_fingerprint_ida_e_volta(client):
+    alvos = (
+        {"host": "a.exemplo.com.br", "port": 443, "http_fingerprint": True},
+        {"host": "b.exemplo.com.br", "port": 443},
+    )
+    conferido = client.post("/api/escopo/validar", json=escopo(*alvos)).json()
+    assert [t["http_fingerprint"] for t in conferido["targets"]] == [True, False]
+    texto = client.post("/api/escopo/yaml", json=escopo(*alvos)).json()["texto"]
+    assert texto.count("http_fingerprint: true") == 1  # o padrão (false) não é escrito
+    assert [t.http_fingerprint for t in parse_scope(yaml.safe_load(texto)).targets] == [True, False]
+
+
+@pytest.mark.parametrize("valor", ["true", "on", 1])
+def test_fingerprint_do_formulario_so_aceita_booleano(client, valor):
+    alvo = {"host": "a.exemplo.com.br", "port": 443, "http_fingerprint": valor}
+    resp = client.post("/api/varreduras", json={"escopo": escopo(alvo)})
+    assert resp.status_code == 422
+    assert "http_fingerprint" in resp.json()["erro"]
+
+
+def test_varredura_pelo_painel_traz_o_fingerprint(client, tmp_path):
+    cert = TestPKI(tmp_path).issue("painel.lab")
+    resposta = b"HTTP/1.1 200 OK\r\nServer: nginx/1.24.0\r\n\r\n"
+    with TLSServer("classical", cert.cert_path, cert.key_path, http_response=resposta) as srv:
+        alvo = {
+            "host": "127.0.0.1",
+            "port": srv.port,
+            "sni": "painel.lab",
+            "http_fingerprint": True,
+        }
+        inicio = client.post("/api/varreduras", json={"escopo": escopo(alvo), "timeout": 2})
+        estado = esperar(client, inicio.json()["id"])
+    fp = estado["resultado"]["results"][0]["fingerprint"]
+    assert fp["status"] == "observed"
+    assert fp["products"][0]["name"] == "nginx" and fp["products"][0]["support"] == "unsupported"
+
+
 # ---------- segurança ----------
 
 

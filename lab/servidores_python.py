@@ -8,6 +8,12 @@ Uso:
 Usa as mesmas portas, certificados e gabarito do docker-compose. O caso
 híbrido só aceita ML-KEM se este Python usar OpenSSL 3.5+ (os Pythons
 instalados pelo uv usam); com OpenSSL antigo ele aparece como clássico.
+
+Fingerprint (Estágio 2): os serviços de BANNERS respondem ao pedido HEAD com
+um cabeçalho Server conhecido de antemão, que é o gabarito em
+lab/gabarito-fingerprint.yaml. Os outros só fazem o handshake e fecham, como
+um serviço TLS que não fala HTTP. No Docker, o nginx responde HTTP em todas
+as portas com a versão real da imagem: lá só vale o gabarito de TLS e rede.
 """
 
 from __future__ import annotations
@@ -30,7 +36,17 @@ SERVICES = {
     "tls-legado": (8443, "tls12-rsa"),
     "tls-vencendo": (8444, "hybrid"),
     "tls-vencido": (8445, "hybrid"),
+    "tls-desconhecido": (8446, "hybrid"),
 }
+
+# serviço -> cabeçalho Server devolvido ao HEAD / (gabarito do fingerprint)
+BANNERS = {
+    "tls-hibrido": "nginx/1.30.6",
+    "tls-classico": "Apache/2.4.58 (Ubuntu) OpenSSL/3.0.13",
+    "tls-legado": "Apache/2.4.58 (Ubuntu) OpenSSL/3.0.13",
+    "tls-desconhecido": "Caddy/2.8.4",  # produto sem regra: registrado, nunca avaliado
+}
+MAX_REQUEST = 8192
 
 
 def make_context(mode: str, name: str) -> ssl.SSLContext:
@@ -44,7 +60,14 @@ def make_context(mode: str, name: str) -> ssl.SSLContext:
     return ctx
 
 
+def http_response(banner: str) -> bytes:
+    return (
+        f"HTTP/1.1 200 OK\r\nServer: {banner}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    ).encode("ascii")
+
+
 def serve(name: str, port: int, ctx: ssl.SSLContext, stop: threading.Event) -> None:
+    banner = BANNERS.get(name)
     with socket.create_server(("127.0.0.1", port)) as srv:
         srv.settimeout(0.3)
         while not stop.is_set():
@@ -52,14 +75,27 @@ def serve(name: str, port: int, ctx: ssl.SSLContext, stop: threading.Event) -> N
                 conn, _ = srv.accept()
             except TimeoutError:
                 continue
-            threading.Thread(target=_handle, args=(conn, ctx), daemon=True).start()
+            threading.Thread(target=_handle, args=(conn, ctx, banner), daemon=True).start()
 
 
-def _handle(conn: socket.socket, ctx: ssl.SSLContext) -> None:
+def _answer_http(tls: ssl.SSLSocket, banner: str) -> None:
+    request = b""
+    while b"\r\n\r\n" not in request and len(request) < MAX_REQUEST:
+        chunk = tls.recv(1024)
+        if not chunk:
+            return
+        request += chunk
+    tls.sendall(http_response(banner))
+
+
+def _handle(conn: socket.socket, ctx: ssl.SSLContext, banner: str | None = None) -> None:
     conn.settimeout(3)
     with suppress(OSError, ssl.SSLError):
-        with ctx.wrap_socket(conn, server_side=True) as tls, suppress(OSError):
-            tls.recv(1)
+        with ctx.wrap_socket(conn, server_side=True) as tls, suppress(OSError, ssl.SSLError):
+            if banner is None:
+                tls.recv(1)  # serviço TLS que não fala HTTP
+            else:
+                _answer_http(tls, banner)
         return
     with suppress(OSError):
         conn.close()
@@ -89,7 +125,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         t.start()
         threads.append(t)
-        print(f"{name:13} 127.0.0.1:{port}  ({mode})")
+        extra = f", Server: {BANNERS[name]}" if name in BANNERS else ""
+        print(f"{name:13} 127.0.0.1:{port}  ({mode}{extra})")
     print(f"Laboratório no ar com {ssl.OPENSSL_VERSION}. Porta 8449 fica fechada de propósito.")
     sys.stdout.flush()
 

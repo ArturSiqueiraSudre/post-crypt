@@ -3,6 +3,10 @@
 O Post-Crypt nunca descobre alvos sozinho. Cada serviço precisa estar listado
 com host e porta explícitos, e o arquivo precisa dizer quem autorizou a
 varredura e quando. Faixas de IP e curingas são recusados de propósito.
+
+``http_fingerprint`` é uma autorização à parte, alvo a alvo (decisão 0002):
+só com ``true`` a ferramenta manda o único pedido HTTP mínimo que identifica
+a versão do software. Sem o campo, o alvo é varrido só no TLS, como antes.
 """
 
 from __future__ import annotations
@@ -12,6 +16,7 @@ import ipaddress
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import cast
 
 import yaml
 
@@ -39,6 +44,7 @@ class Target:
     label: str | None = None
     owner: str = "self"
     sni: str | None = None
+    http_fingerprint: bool = False  # opt-in: 1 pedido HEAD / no mesmo host:porta
 
     @property
     def name(self) -> str:
@@ -72,7 +78,7 @@ def _parse_target(raw: object, index: int) -> Target:
     where = f"targets[{index}]"
     if not isinstance(raw, dict):
         raise ScopeError(f"{where}: esperado um mapa com host e port")
-    unknown = set(raw) - {"host", "port", "protocol", "label", "owner", "sni"}
+    unknown = set(raw) - {"host", "port", "protocol", "label", "owner", "sni", "http_fingerprint"}
     if unknown:
         raise ScopeError(f"{where}: campos desconhecidos {sorted(unknown)}")
     if "host" not in raw or "port" not in raw:
@@ -93,6 +99,10 @@ def _parse_target(raw: object, index: int) -> Target:
             ipaddress.ip_address(host)
         except ValueError:
             sni = host
+    http_fingerprint: object = cast("dict[str, object]", raw).get("http_fingerprint", False)
+    if not isinstance(http_fingerprint, bool):
+        # Só booleano de verdade: "sim", 1 ou "true" entre aspas não autorizam nada.
+        raise ScopeError(f"{where}: http_fingerprint deve ser true ou false, sem aspas")
     label = raw.get("label")
     return Target(
         host=host,
@@ -101,6 +111,7 @@ def _parse_target(raw: object, index: int) -> Target:
         label=str(label) if label is not None else None,
         owner=owner,
         sni=str(sni) if sni is not None else None,
+        http_fingerprint=http_fingerprint,
     )
 
 
