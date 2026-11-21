@@ -17,7 +17,7 @@ Projeto de Engenharia da Computação — Universidade Presbiteriana Mackenzie, 
 | I2 — Evidência | Relatório HTML/PDF, registro de certificados, assinatura ML-DSA e `verify` | Planejado |
 | I3 — Validação | Benchmarks sob latência e perda, POCs, testes de usabilidade | Planejado |
 
-## Painel (sem terminal)
+## Painel 
 
 Para quem não usa linha de comando: no Windows, dê **dois cliques em `abrir-painel.cmd`** na pasta do projeto. Na primeira vez ele prepara o ambiente com o [uv](https://docs.astral.sh/uv/) (`winget install astral-sh.uv`); depois abre direto no navegador. Em qualquer sistema, o mesmo painel abre com:
 
