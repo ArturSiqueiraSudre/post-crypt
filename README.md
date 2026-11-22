@@ -20,9 +20,18 @@ Projeto de Engenharia da Computação — Universidade Presbiteriana Mackenzie, 
 | **Correlação de rede** | Achados que relacionam os alvos entre si, priorizados por impacto (estágio 1 da análise de rede) | **Pronto** |
 | **Fingerprint de versão** | Produto e versão de cada serviço, suporte do fabricante e versão sem suporte repetida na rede (estágio 2) | **Pronto** |
 | **Suporte a SSH** | Sonda SSH (banner e algoritmos anunciados), classificação pós-quântica e versão do OpenSSH (estágio 3) | **Pronto** |
+| **Aplicativo para Windows** | Instalador com assistente, atalhos e desinstalador; o painel abre numa janela própria | **Pronto** |
 | I1 — Inventário completo | SQLite, CBOM CycloneDX 1.6 | Próximo |
 | I2 — Evidência | Relatório HTML/PDF, registro de certificados, assinatura ML-DSA e `verify` | Planejado |
 | I3 — Validação | Benchmarks sob latência e perda, POCs, testes de usabilidade | Planejado |
+
+## Instalar no Windows
+
+Baixe `Post-Crypt-Setup-<versão>.exe` na página [Releases](https://github.com/ArturSiqueiraSudre/post-crypt/releases) e execute. O assistente, em português, deixa escolher a pasta, criar o atalho na área de trabalho e no menu Iniciar, e abrir o programa ao terminar. Não pede senha de administrador: por padrão instala só para o usuário, em `%LOCALAPPDATA%\Programs\Post-Crypt`. Quem é administrador pode escolher instalar para todos. Para remover, use "Adicionar ou remover programas".
+
+O Post-Crypt abre numa janela própria, com o mesmo painel descrito abaixo, e encerra quando a janela é fechada. A janela usa o WebView2, que já vem no Windows 10 e 11; se ele faltar, o painel abre no navegador padrão e uma mensagem fica aberta até a pessoa encerrar. Nada é instalado além do programa: nenhum serviço, nenhuma tarefa agendada. O registro de eventos (sem token e sem dados de varredura) fica em `%LOCALAPPDATA%\Post-Crypt\logs`.
+
+Requer Windows 10 ou 11, 64 bits. Ao lado de cada instalador vai um arquivo `.sha256` para conferir o download (`Get-FileHash Post-Crypt-Setup-<versão>.exe`). Enquanto o instalador não for assinado digitalmente, o Windows pode mostrar o aviso "O Windows protegeu o computador": clique em **Mais informações** e em **Executar assim mesmo**.
 
 ## Painel (sem terminal)
 
@@ -208,6 +217,18 @@ powershell -ExecutionPolicy Bypass -File scripts\testar-local.ps1 -Laboratorio p
 
 Os logs de cada etapa e o `resumo.txt` ficam em `resultado-testes\`.
 
+### Gerar o instalador
+
+O instalador sai do PyInstaller (executável em pasta, sem console) e do [Inno Setup 6](https://jrsoftware.org/isinfo.php). No Windows, com o uv e o Inno Setup instalados (`winget install astral-sh.uv` e `winget install JRSoftware.InnoSetup`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\gerar-instalador.ps1
+```
+
+O script roda os testes, gera `dist\Post-Crypt\Post-Crypt.exe`, confere o executável com `Post-Crypt.exe --autoteste` (sobe o painel sem janela, testa a página e o token, e sai com 0) e monta `dist\instalador\Post-Crypt-Setup-<versão>.exe` com o `.sha256` ao lado. A versão vem do `pyproject.toml`.
+
+No GitHub, o workflow [Instalador Windows](.github/workflows/instalador.yml) faz o mesmo a cada push na `main` (o instalador fica nos artefatos da execução) e, numa tag `v<versão>` igual à do `pyproject.toml`, publica o instalador numa Release. Os arquivos do empacotamento ficam em `packaging/windows/`; o `AppId` do `post-crypt.iss` nunca deve mudar, porque é por ele que uma versão nova atualiza a anterior.
+
 ```text
 src/postcrypt/
   cli.py           comandos postcrypt scan, painel e version
@@ -225,9 +246,11 @@ src/postcrypt/
   rules/           regras em YAML
   output.py        tabela, seção de rede e JSON
   painel/          servidor local do painel (FastAPI) e a página em static/
+  desktop/         aplicativo de computador: janela, servidor em segundo plano, autoteste
+packaging/windows/ PyInstaller (.spec), Inno Setup (.iss), ícone e imagens do instalador
 lab/               escopo e gabaritos, servidores em Python, nginx e OpenSSH (Docker), conferência
 examples/          arquivos de escopo de exemplo (um válido, um recusado)
-scripts/           bateria de testes local e roteiro de demonstração (PowerShell)
+scripts/           bateria de testes, gerador do instalador e roteiro de demonstração (PowerShell)
 tests/             unitários, integração e servidores de teste (TLS, SSH, PKI)
 docs/decisoes/     registros de decisão
 abrir-painel.cmd   abre o painel com dois cliques no Windows

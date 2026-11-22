@@ -36,9 +36,20 @@ dev = [
     "pip-audit>=2.7",
     "httpx>=0.27",
 ]
+# Aplicativo de computador: janela própria (WebView2 no Windows).
+desktop = [
+    "pywebview>=5.3,<7",
+]
+# Gera o executável e o instalador (scripts/gerar-instalador.ps1).
+empacotar = [
+    "pyinstaller>=6.10,<7",
+]
 
 [project.scripts]
 postcrypt = "postcrypt.cli:app"
+
+[project.gui-scripts]
+post-crypt-app = "postcrypt.desktop.app:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/postcrypt"]
