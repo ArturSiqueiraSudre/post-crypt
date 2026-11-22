@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "post-crypt"
-version = "0.1.0"
+version = "1.0.0"
 description = "Varredura local de prontidão pós-quântica: inventário TLS/SSH, CBOM e evidência assinada para equipes de 1 a 3 pessoas."
 readme = "README.md"
 requires-python = ">=3.12"

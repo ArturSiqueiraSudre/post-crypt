@@ -91,3 +91,14 @@ def test_workflow_so_publica_tag_que_bate_com_a_versao():
     assert fluxo["permissions"] == {"contents": "read"}
     assert fluxo["jobs"]["publicar"]["permissions"] == {"contents": "write"}
     assert fluxo["jobs"]["publicar"]["if"].startswith("startsWith(github.ref, 'refs/tags/v')")
+
+
+def test_release_tem_notas_para_o_usuario_e_link_fixo():
+    fluxo = yaml.safe_load((RAIZ / ".github" / "workflows" / "instalador.yml").read_text("utf-8"))
+    comandos = " ".join(p.get("run", "") for p in fluxo["jobs"]["publicar"]["steps"])
+    assert "--notes-file packaging/windows/notas-da-versao.md" in comandos
+    assert "Post-Crypt-Setup.exe" in comandos and "--latest" in comandos
+    notas = (PASTA / "notas-da-versao.md").read_text(encoding="utf-8")
+    link = "releases/latest/download/Post-Crypt-Setup.exe"
+    assert link in notas
+    assert link in (RAIZ / "README.md").read_text(encoding="utf-8")
