@@ -3,3 +3,6 @@
 # Lidos dentro do contêiner Linux: um CRLF vindo do Windows quebra o sh e o sshd.
 *.sh text eol=lf
 lab/ssh/*.conf text eol=lf
+# Ícone e imagens do instalador: nunca converter fim de linha.
+*.ico binary
+*.bmp binary

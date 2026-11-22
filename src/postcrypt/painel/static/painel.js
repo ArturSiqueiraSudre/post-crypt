@@ -157,6 +157,35 @@ function comFingerprint() {
   return recursos.http_fingerprint === true;
 }
 
+// Servidor sem o Estágio 3 recusa protocol: ssh. Mesma regra: só oferece quando ele declara.
+function comSsh() {
+  return recursos.ssh === true;
+}
+
+function ehSsh(t) {
+  return Boolean(t) && t.protocol === "ssh";
+}
+
+// Num serviço SSH não há nome no certificado nem pedido HTTP: os campos ficam desligados.
+function ajustarProtocolo(linha, { trocarPorta }) {
+  const protocolo = linha.querySelector('[data-campo="protocol"]');
+  const ssh = protocolo && protocolo.value === "ssh";
+  const porta = linha.querySelector('[data-campo="port"]');
+  if (trocarPorta) {
+    if (ssh && (porta.value === "443" || porta.value === "")) porta.value = "22";
+    if (!ssh && porta.value === "22") porta.value = "443";
+  }
+  const sni = linha.querySelector('[data-campo="sni"]');
+  const caixa = linha.querySelector('[data-campo="http_fingerprint"]');
+  sni.disabled = ssh;
+  sni.placeholder = ssh ? "Não se aplica a SSH" : "Só se o endereço for um IP";
+  if (ssh) sni.value = "";
+  if (caixa) {
+    caixa.disabled = ssh;
+    if (ssh) caixa.checked = false;
+  }
+}
+
 // ---------- navegação entre vistas ----------
 
 function autorizacaoPreenchida() {
@@ -317,9 +346,12 @@ function lerEscopo() {
     .map((linha) => {
       const alvo = {};
       for (const campo of linha.querySelectorAll("[data-campo]")) {
-        if (campo.type !== "checkbox") alvo[campo.dataset.campo] = campo.value;
+        if (campo.dataset.campo === "protocol") {
+          // tls é o padrão: o campo só vai quando é SSH e o servidor conhece SSH.
+          if (campo.value === "ssh" && comSsh()) alvo.protocol = "ssh";
+        } else if (campo.type !== "checkbox") alvo[campo.dataset.campo] = campo.value;
         // O padrão é não pedir: o campo só vai quando a caixa está marcada.
-        else if (campo.checked && comFingerprint()) alvo[campo.dataset.campo] = true;
+        else if (campo.checked && !campo.disabled && comFingerprint()) alvo[campo.dataset.campo] = true;
       }
       return alvo;
     })
@@ -383,7 +415,9 @@ function renderizarRevisao(escopo) {
     el("dd", { text: a.reference || "—" }),
   );
   $("#revisao-contagem").textContent = `(${escopo.targets.length})`;
-  const colunas = ["Nome", "Endereço", "Porta", "De quem é", "Nome no certificado"];
+  const colunas = ["Nome", "Endereço", "Porta"];
+  if (comSsh()) colunas.push("Protocolo");
+  colunas.push("De quem é", "Nome no certificado");
   if (comFingerprint()) colunas.push("Versão do software");
   $("#revisao-servicos").replaceChildren(
     el(
@@ -403,7 +437,7 @@ function renderizarRevisao(escopo) {
             comSsh() ? el("td", { text: ehSsh(t) ? "SSH" : "TLS" }) : null,
             el("td", { text: DONOS[t.owner] || t.owner }),
             el("td", { text: t.sni && t.sni !== t.host ? t.sni : "—" }),
-            comFingerprint() ? el("td", { text: t.http_fingerprint === true ? "Identificar (1 pedido HTTP)" : "Não pedir" }) : null,
+            comFingerprint() ? el("td", { text: ehSsh(t) ? "Pelo banner SSH" : t.http_fingerprint === true ? "Identificar (1 pedido HTTP)" : "Não pedir" }) : null,
           ),
         ),
       ),
@@ -641,6 +675,45 @@ function cartaoServico(r) {
   return cartao;
 }
 
+function linhasTls(r) {
+  const tls = r.tls || {};
+  const cert = (tls.certificates || [])[0];
+  return [
+    ["Situação técnica", r.assessment.status_label],
+    ["TLS 1.3", tls.tls13 === undefined ? "—" : tls.tls13 ? "Sim" : "Não"],
+    ["Grupos pós-quânticos", (tls.pqc_groups || []).join(", ") || "Nenhum"],
+    ["Troca clássica", tls.classical_group || tls.tls12_key_exchange || "—"],
+    ["Cifra", tls.tls13_cipher_suite || tls.tls12_cipher_suite || "—"],
+    ["Certificado", cert ? cert.subject : "—"],
+    ["Emitido por", cert ? cert.issuer : "—"],
+    ["Válido até", cert ? cert.not_after.slice(0, 10) : "—"],
+    ["Assinatura", cert ? cert.signature_algorithm : "—"],
+    ["Tempo da verificação", `${r.duration_ms} ms`],
+  ];
+}
+
+// Listas vêm do servidor varrido: entram só como texto, e longas são cortadas para leitura.
+function lista(valor, maximo = 8) {
+  const itens = Array.isArray(valor) ? valor.map(String) : [];
+  if (!itens.length) return "—";
+  return itens.slice(0, maximo).join(", ") + (itens.length > maximo ? ` e mais ${itens.length - maximo}` : "");
+}
+
+function linhasSsh(r) {
+  const ssh = r.ssh || {};
+  const banner = [ssh.software, ssh.comments].filter(Boolean).join(" ");
+  return [
+    ["Situação técnica", r.assessment.status_label],
+    ["Protocolo", ssh.protocol ? `SSH ${ssh.protocol}` : "—"],
+    ["Software (banner)", banner || "—"],
+    ["Troca de chave aceita", lista(ssh.kex)],
+    ["Chaves do servidor", lista(ssh.host_key)],
+    ["Cifras aceitas", lista(ssh.ciphers)],
+    ["Proteção Terrapin (strict KEX)", ssh.strict_kex ? "Sim" : "Não"],
+    ["Tempo da verificação", `${r.duration_ms} ms`],
+  ];
+}
+
 // ---------- resultado: versão do software (fingerprint) ----------
 
 // Resultado de servidor sem o Estágio 2 não traz "fingerprint": tudo aqui some.
@@ -695,7 +768,8 @@ function linhasDeFingerprint(r) {
   const http = fp.http && typeof fp.http === "object" ? fp.http : {};
   const cabecalhos = http.headers && typeof http.headers === "object" ? http.headers : {};
   const pilha = fp.tls_stack && typeof fp.tls_stack === "object" ? fp.tls_stack : {};
-  const linhas = [["Pedido HTTP", http.requested ? "1 (HEAD /)" : "Nenhum"]];
+  // Em SSH a versão vem do banner, já listado nos dados técnicos: não há pedido HTTP.
+  const linhas = r.ssh ? [] : [["Pedido HTTP", http.requested ? "1 (HEAD /)" : "Nenhum"]];
   if (cabecalhos.server) linhas.push(["Cabeçalho Server", cabecalhos.server]);
   if (cabecalhos["x-powered-by"]) linhas.push(["Cabeçalho X-Powered-By", cabecalhos["x-powered-by"]]);
   if (pilha.signature) {
@@ -951,6 +1025,7 @@ async function iniciar() {
     const info = await api("/api/info");
     recursos = info.recursos && typeof info.recursos === "object" ? info.recursos : {};
     document.body.classList.toggle("com-fingerprint", comFingerprint());
+    document.body.classList.toggle("com-ssh", comSsh());
     $("#form-escopo").date.value = info.hoje;
     $("#usar-lab").hidden = !info.laboratorio.disponivel;
     $("#estado-info").textContent = `Regras de ${info.regras} · versão ${info.versao}`;

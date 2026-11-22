@@ -1,0 +1,80 @@
+name: Instalador Windows
+
+# Gera o instalador em todo push na main e nos pull requests que mexem no aplicativo
+# (artefato para baixar pela página da execução) e, numa tag v*, publica o instalador
+# e o SHA-256 numa Release do GitHub.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "src/postcrypt/desktop/**"
+      - "src/postcrypt/painel/**"
+      - "packaging/**"
+      - "scripts/gerar-instalador.ps1"
+      - "pyproject.toml"
+      - ".github/workflows/instalador.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  instalador:
+    name: Gerar instalador
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+          }
+
+      - name: A tag confere com a versão do pyproject
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $versao = (Select-String -Path pyproject.toml -Pattern '^version\s*=\s*"(.+)"').Matches[0].Groups[1].Value
+          if ("v$versao" -ne "${{ github.ref_name }}") {
+            Write-Error "A tag ${{ github.ref_name }} não bate com a versão $versao do pyproject.toml"
+            exit 1
+          }
+
+      - name: Gerar (testes, PyInstaller, autoteste, Inno Setup)
+        shell: pwsh
+        run: ./scripts/gerar-instalador.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: instalador-windows
+          path: |
+            dist/instalador/*.exe
+            dist/instalador/*.sha256
+          if-no-files-found: error
+
+  publicar:
+    name: Publicar na Release
+    needs: instalador
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: instalador-windows
+          path: instalador
+      - name: Criar a Release com o instalador
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" instalador/* \
+            --repo "${{ github.repository }}" \
+            --title "Post-Crypt ${{ github.ref_name }}" \
+            --notes "Instalador para Windows 10 e 11 (64 bits). Confira o SHA-256 no arquivo .sha256."

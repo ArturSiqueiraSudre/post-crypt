@@ -2,7 +2,12 @@
 
 Varredura local de prontidão pós-quântica para equipes de 1 a 3 pessoas.
 
-Em uma execução, sem instalar agentes e sem que nada saia da rede, o Post-Crypt mostra quais serviços ainda negociam chaves vulneráveis ao *Harvest Now, Decrypt Later*, quais certificados estão para vencer, e separa o que é troca de chave do que é cifra simétrica — a confusão por trás do "já usamos AES-256, estamos seguros".
+Em uma execução, sem instalar agentes e sem que nada saia da rede, o Post-Crypt verifica os serviços TLS e SSH listados num arquivo de escopo e mostra:
+
+- quais ainda negociam troca de chave vulnerável ao *Harvest Now, Decrypt Later*, separando troca de chave de cifra simétrica — a confusão por trás do "já usamos AES-256, estamos seguros";
+- quais certificados e chaves de servidor precisam migrar, e quais certificados estão para vencer;
+- que software e versão responde em cada serviço, e se o fabricante ainda dá suporte;
+- o que se repete na rede: a mesma CA em vários serviços, o mesmo certificado em mais de um lugar, a mesma versão sem suporte espalhada.
 
 Projeto de Engenharia da Computação — Universidade Presbiteriana Mackenzie, 2026.
 
@@ -15,9 +20,18 @@ Projeto de Engenharia da Computação — Universidade Presbiteriana Mackenzie, 
 | **Correlação de rede** | Achados que relacionam os alvos entre si, priorizados por impacto (estágio 1 da análise de rede) | **Pronto** |
 | **Fingerprint de versão** | Produto e versão de cada serviço, suporte do fabricante e versão sem suporte repetida na rede (estágio 2) | **Pronto** |
 | **Suporte a SSH** | Sonda SSH (banner e algoritmos anunciados), classificação pós-quântica e versão do OpenSSH (estágio 3) | **Pronto** |
+| **Aplicativo para Windows** | Instalador com assistente, atalhos e desinstalador; o painel abre numa janela própria | **Pronto** |
 | I1 — Inventário completo | SQLite, CBOM CycloneDX 1.6 | Próximo |
 | I2 — Evidência | Relatório HTML/PDF, registro de certificados, assinatura ML-DSA e `verify` | Planejado |
 | I3 — Validação | Benchmarks sob latência e perda, POCs, testes de usabilidade | Planejado |
+
+## Instalar no Windows
+
+Baixe `Post-Crypt-Setup-<versão>.exe` na página [Releases](https://github.com/ArturSiqueiraSudre/post-crypt/releases) e execute. O assistente, em português, deixa escolher a pasta, criar o atalho na área de trabalho e no menu Iniciar, e abrir o programa ao terminar. Não pede senha de administrador: por padrão instala só para o usuário, em `%LOCALAPPDATA%\Programs\Post-Crypt`. Quem é administrador pode escolher instalar para todos. Para remover, use "Adicionar ou remover programas".
+
+O Post-Crypt abre numa janela própria, com o mesmo painel descrito abaixo, e encerra quando a janela é fechada. A janela usa o WebView2, que já vem no Windows 10 e 11; se ele faltar, o painel abre no navegador padrão e uma mensagem fica aberta até a pessoa encerrar. Nada é instalado além do programa: nenhum serviço, nenhuma tarefa agendada. O registro de eventos (sem token e sem dados de varredura) fica em `%LOCALAPPDATA%\Post-Crypt\logs`.
+
+Requer Windows 10 ou 11, 64 bits. Ao lado de cada instalador vai um arquivo `.sha256` para conferir o download (`Get-FileHash Post-Crypt-Setup-<versão>.exe`). Enquanto o instalador não for assinado digitalmente, o Windows pode mostrar o aviso "O Windows protegeu o computador": clique em **Mais informações** e em **Executar assim mesmo**.
 
 ## Painel (sem terminal)
 
@@ -28,7 +42,7 @@ postcrypt painel                  # abre http://127.0.0.1:8765 no navegador
 postcrypt painel --porta 9000 --sem-navegador
 ```
 
-No painel a pessoa preenche quem autorizou, lista os serviços (ou abre um arquivo de escopo), clica em **Varrer** e recebe, para cada serviço, três respostas em linguagem simples: se o tráfego gravado hoje pode ser aberto no futuro, se a cifra é forte e se o certificado está em dia. O resultado pode ser baixado no mesmo JSON da linha de comando. No clone do repositório, o botão **Usar laboratório de teste** liga os sete serviços do laboratório e desliga ao fechar o painel.
+No painel a pessoa preenche quem autorizou, lista os serviços (ou abre um arquivo de escopo), clica em **Varrer** e recebe, para cada serviço, três respostas em linguagem simples: se o tráfego gravado hoje pode ser aberto no futuro, se a cifra é forte e se o certificado (ou, em SSH, a chave do servidor) está em dia. Cada serviço pode ser marcado como TLS ou SSH e, em TLS, pode ter a identificação da versão autorizada (caixa **Identificar**). O resultado também mostra a versão do software e a seção **A rede como um todo**, e pode ser baixado no mesmo JSON da linha de comando. No clone do repositório, o botão **Usar laboratório de teste** carrega os nove serviços do laboratório (oito ligados e uma porta fechada de propósito) e desliga tudo ao fechar o painel.
 
 O painel segue as regras da ferramenta: escuta só em `127.0.0.1`, recusa pedidos que não venham da própria página (token por execução e checagem do cabeçalho `Host`, contra DNS rebinding), passa pelo mesmo validador de escopo, não grava nada em disco e nunca monta dados da varredura como HTML. As cores da marca ficam em `:root`, no topo de `src/postcrypt/painel/static/painel.css`.
 
@@ -41,20 +55,36 @@ pip install -e .                     # ou: uv pip install -e .
 postcrypt scan examples/escopo-exemplo.yaml
 postcrypt scan escopo.yaml --json resultado.json
 postcrypt scan escopo.yaml --fail-on-vulnerable   # código 1 se houver alvo vulnerável (pipelines)
+postcrypt scan escopo.yaml --timeout 3 --workers 4 --rules minhas-regras.yaml
+postcrypt version
 ```
 
-Saída contra o laboratório:
+Saída contra o laboratório em Python (o terminal mostra depois os achados de cada alvo e a seção **Rede**):
 
 ```text
-┏━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━┓
-┃ Alvo         ┃ Status                 ┃ Troca de chave ┃ Cifra simétrica ┃ Certificado  ┃ Vence em ┃
-┡━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━┩
-│ tls-hibrido  │ Híbrido PQC            │ X25519MLKEM768 │ AES_256_GCM     │ EC secp256r1 │    364 d │
-│ tls-classico │ Vulnerável a HNDL      │ secp256r1      │ AES_256_GCM     │ EC secp256r1 │    364 d │
-│ tls-legado   │ Vulnerável a HNDL      │ RSA            │ AES_256_GCM     │ RSA-2048     │    364 d │
-│ tls-vencendo │ Híbrido PQC            │ X25519MLKEM768 │ AES_256_GCM     │ EC secp256r1 │      9 d │
-│ desligado    │ Lacuna de visibilidade │ —              │ —               │ —            │        — │
-└──────────────┴────────────────────────┴────────────────┴─────────────────┴──────────────┴──────────┘
+┏━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Alvo             ┃ Status                 ┃ Troca de chave                                  ┃ Cifra simétrica               ┃ Certificado / chave          ┃ Vence em ┃ Software                     ┃
+┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ tls-hibrido      │ Híbrido PQC            │ X25519MLKEM768                                  │ AES_256_GCM                   │ EC secp256r1                 │    364 d │ nginx 1.30.6                 │
+│ 127.0.0.1:8441   │                        │                                                 │                               │                              │          │                              │
+│ tls-classico     │ Vulnerável a HNDL      │ secp256r1                                       │ AES_256_GCM                   │ EC secp256r1                 │    364 d │ Apache httpd 2.4.58          │
+│ 127.0.0.1:8442   │                        │                                                 │                               │                              │          │ OpenSSL 3.0.13 (sem suporte) │
+│ tls-legado       │ Vulnerável a HNDL      │ RSA                                             │ AES_256_GCM                   │ RSA-2048                     │    364 d │ Apache httpd 2.4.58          │
+│ 127.0.0.1:8443   │                        │                                                 │                               │                              │          │ OpenSSL 3.0.13 (sem suporte) │
+│ tls-vencendo     │ Híbrido PQC            │ X25519MLKEM768                                  │ AES_256_GCM                   │ EC secp256r1                 │      9 d │ —                            │
+│ 127.0.0.1:8444   │                        │                                                 │                               │                              │          │                              │
+│ tls-vencido      │ Híbrido PQC            │ X25519MLKEM768                                  │ AES_256_GCM                   │ EC secp256r1                 │  vencido │ não autorizado               │
+│ 127.0.0.1:8445   │                        │                                                 │                               │                              │          │                              │
+│ tls-desconhecido │ Híbrido PQC            │ X25519MLKEM768                                  │ AES_256_GCM                   │ EC secp256r1                 │    364 d │ Caddy 2.8.4                  │
+│ 127.0.0.1:8446   │                        │                                                 │                               │                              │          │                              │
+│ ssh-hibrido      │ Híbrido PQC            │ mlkem768x25519-sha256, sntrup761x25519-sha512,  │ chacha20-poly1305@openssh.com │ rsa-sha2-512, rsa-sha2-256 … │        — │ OpenSSH 10.6                 │
+│ 127.0.0.1:8447   │                        │ sntrup761x25519-sha512@openssh.com              │                               │                              │          │                              │
+│ ssh-classico     │ Vulnerável a HNDL      │ curve25519-sha256                               │ aes128-ctr                    │ ssh-rsa, rsa-sha2-512 …      │        — │ OpenSSH 8.9p1 (sem suporte)  │
+│ 127.0.0.1:8448   │                        │                                                 │                               │                              │          │                              │
+│ desligado        │ Lacuna de visibilidade │ —                                               │ —                             │ —                            │        — │ —                            │
+│ 127.0.0.1:8449   │                        │                                                 │                               │                              │          │                              │
+└──────────────────┴────────────────────────┴─────────────────────────────────────────────────┴───────────────────────────────┴──────────────────────────────┴──────────┴──────────────────────────────┘
+Híbrido PQC: 5 · Vulnerável a HNDL: 3 · Lacuna de visibilidade: 1
 ```
 
 ### Arquivo de escopo
@@ -143,7 +173,7 @@ As regras ficam em [`src/postcrypt/rules/default.yaml`](src/postcrypt/rules/defa
 
 ## Laboratório
 
-Um nginx com OpenSSL 3.5 serve seis casos TLS com gabarito conhecido (híbrido, clássico, TLS 1.2 com troca de chave RSA, certificado vencendo, certificado vencido e um serviço para o banner de produto desconhecido), um OpenSSH de verdade serve dois casos SSH (híbrido e só clássico, em `lab/ssh/`) e uma porta fica fechada.
+São nove serviços com gabarito conhecido, nas portas 8441 a 8449 de `127.0.0.1` ([escopo](lab/escopo-lab.yaml)): seis TLS (híbrido, clássico, TLS 1.2 com troca de chave RSA, certificado vencendo, certificado vencido e um produto sem regra cadastrada), dois SSH (híbrido e só clássico) e uma porta fechada de propósito. No Docker, um nginx com OpenSSL 3.5 serve os casos TLS e um OpenSSH de verdade serve os casos SSH (configurações em `lab/ssh/`).
 
 ```bash
 python lab/gerar_certificados.py              # CA e certificados em lab/certs/ (fora do git)
@@ -152,9 +182,9 @@ postcrypt scan lab/escopo-lab.yaml --json resultado.json
 python lab/verificar_gabarito.py resultado.json --sem-fingerprint
 ```
 
-O CI roda exatamente isso a cada push e falha se algum serviço divergir do [gabarito](lab/gabarito.yaml) ou se algum achado de rede divergir do [gabarito de rede](lab/gabarito-rede.yaml). Todos os certificados do laboratório saem da mesma CA clássica, então o achado de ponto único de falha aparece com os seis serviços TLS.
+O CI roda exatamente isso a cada push, no Linux, e falha se algum serviço divergir do [gabarito](lab/gabarito.yaml) ou se algum achado de rede divergir do [gabarito de rede](lab/gabarito-rede.yaml). Outro job, no Windows, roda o pytest e o `scripts/testar-local.ps1` com o laboratório em Python. Todos os certificados do laboratório saem da mesma CA clássica, então o achado de ponto único de falha aparece com os seis serviços TLS.
 
-Sem Docker, os mesmos casos e portas sobem em Python (os dois SSH imitam o banner e a lista de algoritmos de um OpenSSH real) (o caso híbrido precisa de OpenSSL 3.5+, como o Python instalado pelo uv):
+Sem Docker, os mesmos casos e portas sobem em Python. Os dois SSH imitam o banner e a lista de algoritmos de um OpenSSH real, e o caso TLS híbrido precisa de um Python com OpenSSL 3.5+, como o instalado pelo uv:
 
 ```bash
 python lab/servidores_python.py          # Ctrl+C para parar
@@ -162,19 +192,21 @@ postcrypt scan lab/escopo-lab.yaml --json resultado.json
 python lab/verificar_gabarito.py resultado.json
 ```
 
+Resultado esperado: `9/9 serviços conferem`, `4/4 achados de rede conferem` e `9/9 fingerprints conferem`.
+
 No laboratório em Python, quatro serviços respondem ao `HEAD /` com um cabeçalho `Server` conhecido de antemão (um deles de um produto sem regra, que precisa sair "suporte não avaliado"), e o [gabarito de fingerprint](lab/gabarito-fingerprint.yaml) confere produto, versão e suporte; um serviço autorizado não fala HTTP (precisa sair "não observado") e outro não tem a autorização. No Docker, o nginx responde HTTP em todas as portas com a versão real da imagem, por isso lá a conferência usa `--sem-fingerprint`.
 
 ## Desenvolvimento
 
 ```bash
 uv venv --python 3.13 && uv pip install -e ".[dev]"   # Python do uv já traz OpenSSL 3.5
-pytest                      # unitários + integração (servidores TLS locais)
+pytest                      # unitários + integração (servidores TLS e SSH locais)
 ruff check src tests lab && ruff format --check src tests lab
 bandit -q -r src -c pyproject.toml
 pip-audit --skip-editable
 ```
 
-O teste de integração do servidor híbrido precisa de um Python com OpenSSL 3.5+; sem ele, o teste é pulado e o restante roda normalmente.
+Dois testes dependem do ambiente e são pulados quando ele falta, sem afetar o restante: o do servidor TLS híbrido precisa de um Python com OpenSSL 3.5+, e os dois com OpenSSH de verdade precisam do `sshd` instalado (no Windows são sempre pulados e rodam no CI).
 
 No Windows, uma bateria completa (ambiente, ruff, pytest, bandit, pip-audit e laboratório: Docker se estiver aberto, senão Python) roda com:
 
@@ -185,24 +217,43 @@ powershell -ExecutionPolicy Bypass -File scripts\testar-local.ps1 -Laboratorio p
 
 Os logs de cada etapa e o `resumo.txt` ficam em `resultado-testes\`.
 
+### Gerar o instalador
+
+O instalador sai do PyInstaller (executável em pasta, sem console) e do [Inno Setup 6](https://jrsoftware.org/isinfo.php). No Windows, com o uv e o Inno Setup instalados (`winget install astral-sh.uv` e `winget install JRSoftware.InnoSetup`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\gerar-instalador.ps1
+```
+
+O script roda os testes, gera `dist\Post-Crypt\Post-Crypt.exe`, confere o executável com `Post-Crypt.exe --autoteste` (sobe o painel sem janela, testa a página e o token, e sai com 0) e monta `dist\instalador\Post-Crypt-Setup-<versão>.exe` com o `.sha256` ao lado. A versão vem do `pyproject.toml`.
+
+No GitHub, o workflow [Instalador Windows](.github/workflows/instalador.yml) faz o mesmo a cada push na `main` (o instalador fica nos artefatos da execução) e, numa tag `v<versão>` igual à do `pyproject.toml`, publica o instalador numa Release. Os arquivos do empacotamento ficam em `packaging/windows/`; o `AppId` do `post-crypt.iss` nunca deve mudar, porque é por ele que uma versão nova atualiza a anterior.
+
 ```text
 src/postcrypt/
-  cli.py          comando postcrypt
-  scope.py        arquivo de escopo e validações
-  scanner.py      orquestração paralela, só nos alvos do escopo
-  tls/            ClientHello, leitura do ServerHello, sonda
-  ssh/            leitura do banner e do KEXINIT, sonda SSH
-  http_banner/    pedido HEAD mínimo do fingerprint e leitura da resposta
-  fingerprint.py  produto, versão e suporte do fabricante (lógica pura)
-  certs.py        leitura de certificados X.509
-  classify.py     troca de chave × cifra × autenticação (TLS)
-  classify_ssh.py as mesmas três perguntas para SSH
-  network.py      correlação entre alvos e prioridade por impacto
-  rules/          regras em YAML
-  output.py       tabela, seção de rede e JSON
-lab/              nginx com gabarito, gerador de certificados, conferência
-tests/            unitários, integração e PKI de teste
-docs/decisoes/    registros de decisão
+  cli.py           comandos postcrypt scan, painel e version
+  scope.py         arquivo de escopo e validações
+  scanner.py       orquestração paralela, só nos alvos do escopo
+  tls/             ClientHello, leitura do ServerHello, sonda TLS
+  ssh/             leitura do banner e do KEXINIT, sonda SSH
+  http_banner/     pedido HEAD mínimo do fingerprint e leitura da resposta
+  probe_errors.py  erro de conexão comum às sondas
+  fingerprint.py   produto, versão e suporte do fabricante (lógica pura)
+  certs.py         leitura de certificados X.509
+  classify.py      troca de chave × cifra × autenticação (TLS)
+  classify_ssh.py  as mesmas três perguntas para SSH
+  network.py       correlação entre alvos e prioridade por impacto
+  rules/           regras em YAML
+  output.py        tabela, seção de rede e JSON
+  painel/          servidor local do painel (FastAPI) e a página em static/
+  desktop/         aplicativo de computador: janela, servidor em segundo plano, autoteste
+packaging/windows/ PyInstaller (.spec), Inno Setup (.iss), ícone e imagens do instalador
+lab/               escopo e gabaritos, servidores em Python, nginx e OpenSSH (Docker), conferência
+examples/          arquivos de escopo de exemplo (um válido, um recusado)
+scripts/           bateria de testes, gerador do instalador e roteiro de demonstração (PowerShell)
+tests/             unitários, integração e servidores de teste (TLS, SSH, PKI)
+docs/decisoes/     registros de decisão
+abrir-painel.cmd   abre o painel com dois cliques no Windows
 ```
 
 Fluxo de trabalho e divisão de módulos em [CONTRIBUTING.md](CONTRIBUTING.md). Decisões de escopo em [docs/decisoes](docs/decisoes).
