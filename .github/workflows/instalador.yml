@@ -66,10 +66,18 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v5
         with:
           name: instalador-windows
           path: instalador
+      # Nome fixo, além do nome com versão: o link .../releases/latest/download/Post-Crypt-Setup.exe
+      # sempre baixa a versão mais nova, e é esse o link divulgado no README.
+      - name: Nome fixo para o link de download
+        run: |
+          versao="${GITHUB_REF_NAME#v}"
+          cp "instalador/Post-Crypt-Setup-${versao}.exe" instalador/Post-Crypt-Setup.exe
+          (cd instalador && sha256sum Post-Crypt-Setup.exe > Post-Crypt-Setup.exe.sha256)
       - name: Criar a Release com o instalador
         env:
           GH_TOKEN: ${{ github.token }}
@@ -77,4 +85,5 @@ jobs:
           gh release create "${{ github.ref_name }}" instalador/* \
             --repo "${{ github.repository }}" \
             --title "Post-Crypt ${{ github.ref_name }}" \
-            --notes "Instalador para Windows 10 e 11 (64 bits). Confira o SHA-256 no arquivo .sha256."
+            --notes-file packaging/windows/notas-da-versao.md \
+            --latest

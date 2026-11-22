@@ -1,7 +1,7 @@
 ; Instalador do Post-Crypt (Inno Setup 6).
 ;
 ; Gerado por scripts\gerar-instalador.ps1, que passa a versão e a pasta do PyInstaller:
-;   ISCC.exe /DAppVersion=0.1.0 /DAppSource=<pasta do PyInstaller> /DAppOutput=<pasta de saída> post-crypt.iss
+;   ISCC.exe /DAppVersion=1.0.0 /DAppSource=<pasta do PyInstaller> /DAppOutput=<pasta de saída> post-crypt.iss
 ;
 ; Instala por usuário, sem pedir administrador (em %LOCALAPPDATA%\Programs\Post-Crypt).
 ; Quem é administrador pode escolher "todos os usuários" no primeiro passo.

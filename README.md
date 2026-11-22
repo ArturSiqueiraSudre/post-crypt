@@ -27,11 +27,11 @@ Projeto de Engenharia da Computação — Universidade Presbiteriana Mackenzie, 
 
 ## Instalar no Windows
 
-Baixe `Post-Crypt-Setup-<versão>.exe` na página [Releases](https://github.com/ArturSiqueiraSudre/post-crypt/releases) e execute. O assistente, em português, deixa escolher a pasta, criar o atalho na área de trabalho e no menu Iniciar, e abrir o programa ao terminar. Não pede senha de administrador: por padrão instala só para o usuário, em `%LOCALAPPDATA%\Programs\Post-Crypt`. Quem é administrador pode escolher instalar para todos. Para remover, use "Adicionar ou remover programas".
+**[Baixe o instalador (Post-Crypt-Setup.exe)](https://github.com/ArturSiqueiraSudre/post-crypt/releases/latest/download/Post-Crypt-Setup.exe)** e execute. O link sempre traz a versão mais nova; as anteriores ficam em [Releases](https://github.com/ArturSiqueiraSudre/post-crypt/releases). O assistente, em português, deixa escolher a pasta, criar o atalho na área de trabalho e no menu Iniciar, e abrir o programa ao terminar. Não pede senha de administrador: por padrão instala só para o usuário, em `%LOCALAPPDATA%\Programs\Post-Crypt`. Quem é administrador pode escolher instalar para todos. Para remover, use "Adicionar ou remover programas".
 
 O Post-Crypt abre numa janela própria, com o mesmo painel descrito abaixo, e encerra quando a janela é fechada. A janela usa o WebView2, que já vem no Windows 10 e 11; se ele faltar, o painel abre no navegador padrão e uma mensagem fica aberta até a pessoa encerrar. Nada é instalado além do programa: nenhum serviço, nenhuma tarefa agendada. O registro de eventos (sem token e sem dados de varredura) fica em `%LOCALAPPDATA%\Post-Crypt\logs`.
 
-Requer Windows 10 ou 11, 64 bits. Ao lado de cada instalador vai um arquivo `.sha256` para conferir o download (`Get-FileHash Post-Crypt-Setup-<versão>.exe`). Enquanto o instalador não for assinado digitalmente, o Windows pode mostrar o aviso "O Windows protegeu o computador": clique em **Mais informações** e em **Executar assim mesmo**.
+Requer Windows 10 ou 11, 64 bits. Ao lado de cada instalador vai um arquivo `.sha256` para conferir o download (`Get-FileHash Post-Crypt-Setup.exe`). Enquanto o instalador não for assinado digitalmente, o Windows pode mostrar o aviso "O Windows protegeu o computador": clique em **Mais informações** e em **Executar assim mesmo**.
 
 ## Painel (sem terminal)
 
